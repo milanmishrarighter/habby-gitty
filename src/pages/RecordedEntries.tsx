@@ -143,14 +143,15 @@ const RecordedEntries: React.FC = () => {
                   {habitsTrackedForDay && Object.keys(habitsTrackedForDay).length > 0 && (
                     <div className="mt-4 pt-2 border-t border-gray-100 text-left">
                       <h4 className="font-semibold text-gray-800 text-sm mb-1">Habits Tracked:</h4>
-                      <ul className="list-disc list-inside text-sm text-gray-600">
+                      <ul className="list-none space-y-1"> {/* Changed to list-none for custom bullet */}
                         {Object.entries(habitsTrackedForDay).map(([habitId, trackedValues]) => {
                           const habit = habits.find(h => h.id === habitId);
                           if (habit && trackedValues.length > 0) {
                             return (
-                              <li key={habitId} className="flex items-center gap-2">
+                              <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
-                                <span className="font-medium" style={{ color: habit.color }}>{habit.name}:</span> {trackedValues.join(', ')}
+                                <span className="font-medium">{habit.name}:</span>
+                                <span>{trackedValues[0]}</span> {/* Displaying the single tracked value */}
                               </li>
                             );
                           }
