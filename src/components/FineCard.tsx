@@ -55,10 +55,12 @@ const FineCard: React.FC<FineCardProps> = ({
   isCurrentPeriod,
 }) => {
   const [finesForPeriod, setFinesForPeriod] = React.useState<FineDetail[]>([]);
+  const [warnings, setWarnings] = React.useState<string[]>([]);
 
   React.useEffect(() => {
-    const calculateFines = () => {
-      const fines: FineDetail[] = [];
+    const calculateFinesAndWarnings = () => {
+      const currentFines: FineDetail[] = [];
+      const currentWarnings: string[] = [];
       const datesInPeriod = getDatesInPeriod(periodStart, periodEnd);
 
       habits.forEach(habit => {
@@ -77,7 +79,7 @@ const FineCard: React.FC<FineCardProps> = ({
               const existingFine = finesStatus[periodKey]?.[habit.id]?.find(
                 f => f.trackingValue === condition.trackingValue
               );
-              fines.push({
+              currentFines.push({
                 habitId: habit.id,
                 habitName: habit.name,
                 fineAmount: habit.fineAmount,
@@ -88,14 +90,28 @@ const FineCard: React.FC<FineCardProps> = ({
                 actualCount: actualCount,
               });
             }
+
+            // Warning logic for current period
+            if (isCurrentPeriod) {
+              if (actualCount === condition.count && condition.count > 0) {
+                currentWarnings.push(
+                  `Warning: You have already tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${periodType.slice(0, -2)}. Any further tracking of this value will incur a fine.`
+                );
+              } else if (actualCount === condition.count - 1 && condition.count > 0) {
+                currentWarnings.push(
+                  `Heads up: You have tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${periodType.slice(0, -2)}. One more tracking of this value will incur a fine.`
+                );
+              }
+            }
           }
         });
       });
-      setFinesForPeriod(fines);
+      setFinesForPeriod(currentFines);
+      setWarnings(currentWarnings);
     };
 
-    calculateFines();
-  }, [periodStart, periodEnd, periodType, habits, dailyTracking, finesStatus]);
+    calculateFinesAndWarnings();
+  }, [periodStart, periodEnd, periodType, habits, dailyTracking, finesStatus, isCurrentPeriod]);
 
   const handleStatusChange = (fine: FineDetail, newStatus: 'paid' | 'unpaid') => {
     const updatedFine = { ...fine, status: newStatus };
@@ -115,6 +131,17 @@ const FineCard: React.FC<FineCardProps> = ({
         <p className="text-sm text-gray-500">{formatDateRange(periodStart, periodEnd)}</p>
       </CardHeader>
       <CardContent className="flex-grow">
+        {isCurrentPeriod && warnings.length > 0 && (
+          <div className="mb-4 p-3 bg-yellow-100 border border-yellow-300 rounded-md text-sm text-yellow-800 text-left">
+            <p className="font-bold mb-1">Potential Fines Ahead:</p>
+            <ul className="list-disc list-inside space-y-1">
+              {warnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {finesForPeriod.length === 0 ? (
           isCurrentPeriod ? (
             <p className="text-gray-600 italic">Fines are being calculated for this {periodType.slice(0, -2)}.</p>
