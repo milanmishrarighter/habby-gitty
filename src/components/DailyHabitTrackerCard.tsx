@@ -1,16 +1,16 @@
 "use client";
 
 import React from 'react';
-import { showSuccess } from '@/utils/toast';
+import { showSuccess, showError } from '@/utils/toast';
 
 interface Habit {
   id: string;
   name: string;
   color: string;
-  trackingValues: string[];
+  trackingValues: string[]; // All possible values to track
   yearlyGoal: {
-    count: number;
-    contributingValues: string[];
+    count: number; // Target count
+    contributingValues: string[]; // Subset of trackingValues that contribute to the yearly goal
   };
 }
 
@@ -19,7 +19,7 @@ interface DailyHabitTrackerCardProps {
   entryDate: string; // The date for which we are tracking
   onUpdateTracking: (habitId: string, date: string, trackedValues: string[], yearlyProgress: number) => void;
   currentYearlyProgress: number;
-  initialTrackedValues: string[];
+  initialTrackedValue: string | null; // Changed to single string or null
 }
 
 const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
@@ -27,84 +27,90 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   entryDate,
   onUpdateTracking,
   currentYearlyProgress,
-  initialTrackedValues,
+  initialTrackedValue,
 }) => {
-  const [trackedValues, setTrackedValues] = React.useState<string[]>(initialTrackedValues);
+  const [selectedTrackingValue, setSelectedTrackingValue] = React.useState<string | null>(initialTrackedValue);
+  const [displayYearlyProgress, setDisplayYearlyProgress] = React.useState(currentYearlyProgress);
 
   React.useEffect(() => {
-    setTrackedValues(initialTrackedValues);
-  }, [initialTrackedValues]);
+    setSelectedTrackingValue(initialTrackedValue);
+  }, [initialTrackedValue]);
 
-  const handleCheckboxChange = (value: string, isChecked: boolean) => {
-    let newTrackedValues: string[];
-    let newYearlyProgress = currentYearlyProgress;
+  React.useEffect(() => {
+    setDisplayYearlyProgress(currentYearlyProgress);
+  }, [currentYearlyProgress]);
 
-    if (isChecked) {
-      newTrackedValues = [...trackedValues, value];
+  const handleValueClick = (value: string) => {
+    if (!entryDate) {
+      showError("Please select a date first to track habits.");
+      return;
+    }
+
+    let newSelectedValue: string | null;
+    let newYearlyProgress = displayYearlyProgress;
+
+    // Check if the clicked value is already selected (deselection)
+    if (selectedTrackingValue === value) {
+      newSelectedValue = null;
+      // If the deselected value was a contributing value, decrement progress
+      if (habit.yearlyGoal.contributingValues.includes(value)) {
+        newYearlyProgress = Math.max(0, newYearlyProgress - 1);
+      }
+    } else {
+      // A new value is being selected
+      newSelectedValue = value;
+      // If there was a previously selected value and it was contributing, decrement its effect
+      if (selectedTrackingValue && habit.yearlyGoal.contributingValues.includes(selectedTrackingValue)) {
+        newYearlyProgress = Math.max(0, newYearlyProgress - 1);
+      }
+      // If the newly selected value is a contributing value, increment its effect
       if (habit.yearlyGoal.contributingValues.includes(value)) {
         newYearlyProgress += 1;
       }
-    } else {
-      newTrackedValues = trackedValues.filter((v) => v !== value);
-      if (habit.yearlyGoal.contributingValues.includes(value)) {
-        newYearlyProgress -= 1;
-      }
     }
-    setTrackedValues(newTrackedValues);
-    onUpdateTracking(habit.id, entryDate, newTrackedValues, newYearlyProgress);
+
+    setSelectedTrackingValue(newSelectedValue);
+    setDisplayYearlyProgress(newYearlyProgress);
+
+    // Pass an array with one item or an empty array to onUpdateTracking
+    onUpdateTracking(habit.id, entryDate, newSelectedValue ? [newSelectedValue] : [], newYearlyProgress);
     showSuccess(`Habit '${habit.name}' updated for ${entryDate}!`);
   };
-
-  const progressPercentage = habit.yearlyGoal.count > 0
-    ? Math.min(100, (currentYearlyProgress / habit.yearlyGoal.count) * 100)
-    : 0;
 
   return (
     <div className="p-4 rounded-lg shadow-md flex flex-col space-y-3" style={{ backgroundColor: `${habit.color}33` }}>
       <div className="flex items-center justify-between">
         <span className="text-gray-800 font-bold text-lg">{habit.name}</span>
-        <div className="w-6 h-6 rounded-full border-2 border-white shadow" style={{ backgroundColor: habit.color }}></div>
+        <div className="flex items-center gap-2">
+          {habit.yearlyGoal.count > 0 && (
+            <span className="text-sm font-semibold text-gray-600">
+              {displayYearlyProgress} / {habit.yearlyGoal.count}
+            </span>
+          )}
+          <div className="w-6 h-6 rounded-full border-2 border-white shadow" style={{ backgroundColor: habit.color }}></div>
+        </div>
       </div>
 
       {habit.trackingValues && habit.trackingValues.length > 0 && (
-        <div className="flex flex-wrap gap-2 mt-2">
-          {habit.trackingValues.map((value, index) => (
-            <span key={index} className="bg-gray-200 text-gray-700 text-xs font-medium px-2.5 py-0.5 rounded-full">
-              {value}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {habit.yearlyGoal.count > 0 && (
-        <div className="mt-2 text-sm text-gray-600">
-          <h4 className="font-semibold mb-1">Yearly Goal: {currentYearlyProgress} / {habit.yearlyGoal.count}</h4>
-          <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-            <div
-              className="h-2.5 rounded-full"
-              style={{ width: `${progressPercentage}%`, backgroundColor: habit.color }}
-            ></div>
-          </div>
-          {habit.yearlyGoal.contributingValues && habit.yearlyGoal.contributingValues.length > 0 && (
-            <div className="mt-3">
-              <p className="font-medium mb-1">Track for today:</p>
-              <div className="flex flex-wrap gap-2">
-                {habit.yearlyGoal.contributingValues.map((value, index) => (
-                  <label key={index} className="inline-flex items-center space-x-2 bg-gray-100 px-3 py-1 rounded-full text-sm font-medium text-gray-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      value={value}
-                      className="form-checkbox rounded text-blue-600 focus:ring-blue-500 focus:ring-2 h-4 w-4"
-                      checked={trackedValues.includes(value)}
-                      onChange={(e) => handleCheckboxChange(value, e.target.checked)}
-                      disabled={!entryDate} // Disable if no date is selected
-                    />
-                    <span>{value}</span>
-                  </label>
-                ))}
+        <div className="mt-2">
+          <p className="font-medium mb-1 text-left">Track for today:</p>
+          <div className="flex flex-wrap gap-2">
+            {habit.trackingValues.map((value, index) => (
+              <div
+                key={index}
+                className={`cursor-pointer px-4 py-2 rounded-lg border-2 transition-all duration-200
+                  ${selectedTrackingValue === value
+                    ? `bg-blue-100 border-blue-500 text-blue-800`
+                    : `bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200`
+                  }
+                  ${!entryDate ? 'opacity-50 cursor-not-allowed' : ''}
+                `}
+                onClick={() => handleValueClick(value)}
+              >
+                {value}
               </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -215,7 +215,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             {habits.map((habit) => {
               const currentYear = entryDate ? new Date(entryDate).getFullYear().toString() : new Date().getFullYear().toString();
               const currentYearlyProgress = yearlyProgress[currentYear]?.[habit.id] || 0;
-              const initialTrackedValues = entryDate ? (dailyTracking[entryDate]?.[habit.id] || []) : [];
+              // Extract the single tracked value for the day, or null if none
+              const initialTrackedValue = entryDate && dailyTracking[entryDate]?.[habit.id]?.length > 0
+                ? dailyTracking[entryDate][habit.id][0]
+                : null;
 
               return (
                 <DailyHabitTrackerCard
@@ -224,7 +227,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   entryDate={entryDate}
                   onUpdateTracking={handleUpdateTracking}
                   currentYearlyProgress={currentYearlyProgress}
-                  initialTrackedValues={initialTrackedValues}
+                  initialTrackedValue={initialTrackedValue} // Pass single value
                 />
               );
             })}
