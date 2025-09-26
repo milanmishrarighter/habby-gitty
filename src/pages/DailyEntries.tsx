@@ -195,16 +195,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         <label className="block text-sm font-medium text-gray-700 mb-2">Mood of the Day</label>
         <EmojiPicker selectedEmoji={moodEmoji} onSelectEmoji={setMoodEmoji} />
       </div>
-      {/* Save Entry Button */}
-      <div className="flex justify-center mt-8">
-        <button
-          id="save-button"
-          className="px-6 py-3 bg-blue-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
-          onClick={saveEntry}
-        >
-          Save Entry
-        </button>
-      </div>
 
       {/* Daily Habit Tracking Section */}
       <div className="mt-8 pt-8 border-t border-gray-200">
@@ -242,6 +232,17 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             })}
           </div>
         )}
+      </div>
+
+      {/* Single Save Entry Button at the very bottom */}
+      <div className="flex justify-center mt-8">
+        <button
+          id="save-button-bottom"
+          className="px-6 py-3 bg-blue-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
+          onClick={saveEntry}
+        >
+          Save Entry
+        </button>
       </div>
     </div>
   );
