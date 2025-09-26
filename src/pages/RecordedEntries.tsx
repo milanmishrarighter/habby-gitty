@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from 'date-fns'; // Import format from date-fns
 import { Habit } from "@/types/habit"; // Import the centralized Habit interface
+import { supabase } from "@/lib/supabase"; // Import Supabase client
 
 interface DailyEntry {
   date: string;
@@ -32,7 +33,7 @@ const RecordedEntries: React.FC = () => {
   const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
 
   // Function to load entries, habits, and daily tracking from localStorage
-  const loadAllData = () => {
+  const loadAllData = React.useCallback(async () => {
     const storedEntries = localStorage.getItem("dailyJournalEntries");
     if (storedEntries) {
       const parsedEntries: DailyEntry[] = JSON.parse(storedEntries);
@@ -42,11 +43,16 @@ const RecordedEntries: React.FC = () => {
       setDailyEntries([]);
     }
 
-    const storedHabits = localStorage.getItem('dailyJournalHabits');
-    if (storedHabits) {
-      setHabits(JSON.parse(storedHabits));
+    // Fetch habits from Supabase
+    const { data: habitsData, error: habitsError } = await supabase
+      .from('habits')
+      .select('*');
+
+    if (habitsError) {
+      console.error("Error fetching habits for RecordedEntries:", habitsError);
+      showError("Failed to load habits.");
     } else {
-      setHabits([]);
+      setHabits(habitsData as Habit[]);
     }
 
     const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
@@ -55,12 +61,12 @@ const RecordedEntries: React.FC = () => {
     } else {
       setDailyTracking({});
     }
-  };
+  }, []);
 
   // Load data on component mount
   React.useEffect(() => {
     loadAllData();
-  }, []);
+  }, [loadAllData]);
 
   const handleDeleteClick = (date: string) => {
     setDateToDelete(date);

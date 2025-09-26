@@ -7,6 +7,7 @@ import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
 import { showSuccess, showError } from "@/utils/toast";
 import { Habit } from "@/types/habit"; // Import the centralized Habit interface
+import { supabase } from "@/lib/supabase"; // Import Supabase client
 
 interface DailyEntry {
   date: string;
@@ -47,10 +48,20 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
       setJournalText(initialEntry.text);
       setMoodEmoji(initialEntry.mood);
 
-      const storedHabits = localStorage.getItem('dailyJournalHabits');
-      if (storedHabits) {
-        setHabits(JSON.parse(storedHabits));
-      }
+      const fetchHabits = async () => {
+        const { data, error } = await supabase
+          .from('habits')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error("Error fetching habits for EditDailyEntryModal:", error);
+          showError("Failed to load habits.");
+        } else {
+          setHabits(data as Habit[]);
+        }
+      };
+      fetchHabits();
 
       const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
       if (storedDailyTracking) {
