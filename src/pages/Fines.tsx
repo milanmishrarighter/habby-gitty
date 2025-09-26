@@ -5,15 +5,9 @@ import { format, isAfter, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addW
 import { getWeeksInYear, getMonthsInYear } from "@/lib/date-utils";
 import FineCard from "@/components/FineCard";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
-import { Habit } from "@/types/habit"; // Import the centralized Habit interface
-import { supabase } from "@/lib/supabase"; // Import Supabase client
-
-interface DailyEntry {
-  date: string;
-  text: string;
-  mood: string;
-  timestamp: string;
-}
+import { Habit } from "@/types/habit";
+import { DailyEntry } from "@/types/dailyEntry"; // Import DailyEntry
+import { supabase } from "@/lib/supabase";
 
 interface DailyTrackingRecord {
   [date: string]: {
@@ -55,17 +49,20 @@ const Fines: React.FC = () => {
         setFinesStatus(JSON.parse(storedFinesStatus));
       }
 
-      // Load last entry date from localStorage
-      const storedEntries = localStorage.getItem("dailyJournalEntries");
-      if (storedEntries) {
-        const parsedEntries: DailyEntry[] = JSON.parse(storedEntries);
-        if (parsedEntries.length > 0) {
-          const latestDate = parsedEntries.reduce((maxDate, entry) => {
-            const entryDate = new Date(entry.date);
-            return entryDate > maxDate ? entryDate : maxDate;
-          }, new Date(0)); // Initialize with a very old date
-          setLastEntryDate(latestDate);
-        }
+      // Fetch last entry date from Supabase
+      const { data: latestEntry, error: latestEntryError } = await supabase
+        .from('daily_entries')
+        .select('date')
+        .order('date', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (latestEntryError && latestEntryError.code !== 'PGRST116') { // PGRST116 means "no rows found"
+        console.error("Error fetching latest daily entry date:", latestEntryError);
+      } else if (latestEntry) {
+        setLastEntryDate(new Date(latestEntry.date));
+      } else {
+        setLastEntryDate(null);
       }
     };
     loadData();
@@ -78,14 +75,12 @@ const Fines: React.FC = () => {
 
   const handleUpdateFineStatus = (periodKey: string, updatedFine: FineDetail) => {
     setFinesStatus(prev => {
-      const newFinesStatus = { ...prev }; // Shallow copy of the top-level object
+      const newFinesStatus = { ...prev };
 
-      // Ensure a new object for the periodKey if it's being modified
       const periodData = { ...(newFinesStatus[periodKey] || {}) };
       newFinesStatus[periodKey] = periodData;
 
-      // Ensure a new array for the habitId if it's being modified
-      const habitFines = [...(periodData[updatedFine.habitId] || [])]; // Create a new array reference
+      const habitFines = [...(periodData[updatedFine.habitId] || [])];
       periodData[updatedFine.habitId] = habitFines;
 
       const fineIndex = habitFines.findIndex(
@@ -93,9 +88,9 @@ const Fines: React.FC = () => {
       );
 
       if (fineIndex > -1) {
-        habitFines[fineIndex] = updatedFine; // Update the item in the new array
+        habitFines[fineIndex] = updatedFine;
       } else {
-        habitFines.push(updatedFine); // Add to the new array
+        habitFines.push(updatedFine);
       }
 
       return newFinesStatus;

@@ -6,15 +6,9 @@ import { Button } from "@/components/ui/button";
 import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
 import { showSuccess, showError } from "@/utils/toast";
-import { Habit } from "@/types/habit"; // Import the centralized Habit interface
-import { supabase } from "@/lib/supabase"; // Import Supabase client
-
-interface DailyEntry {
-  date: string;
-  text: string;
-  mood: string;
-  timestamp: string;
-}
+import { Habit } from "@/types/habit";
+import { DailyEntry } from "@/types/dailyEntry"; // Import the new DailyEntry interface
+import { supabase } from "@/lib/supabase";
 
 interface DailyTrackingRecord {
   [date: string]: {
@@ -32,7 +26,7 @@ interface EditDailyEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialEntry: DailyEntry | null;
-  onSave: (updatedEntry: DailyEntry) => void;
+  onSave: (updatedEntry: DailyEntry) => Promise<void>; // onSave now expects a Promise
 }
 
 const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClose, initialEntry, onSave }) => {
@@ -41,6 +35,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<YearlyProgressRecord>({});
+  const [isLoading, setIsLoading] = React.useState(false);
 
   // Load data when modal opens or initialEntry changes
   React.useEffect(() => {
@@ -106,7 +101,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!initialEntry) return;
 
     if (!journalText.trim()) {
@@ -114,6 +109,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
       return;
     }
 
+    setIsLoading(true);
     const updatedEntry: DailyEntry = {
       ...initialEntry,
       text: journalText.trim(),
@@ -121,9 +117,9 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
       timestamp: new Date().toISOString(), // Update timestamp on edit
     };
 
-    onSave(updatedEntry);
-    showSuccess("Entry updated successfully!");
-    onClose();
+    await onSave(updatedEntry); // Call the prop function to save to Supabase
+    setIsLoading(false);
+    onClose(); // Close modal after saving
   };
 
   if (!initialEntry) return null;
@@ -188,8 +184,10 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave}>Save Changes</Button>
+          <Button variant="outline" onClick={onClose} disabled={isLoading}>Cancel</Button>
+          <Button onClick={handleSave} disabled={isLoading}>
+            {isLoading ? "Saving..." : "Save Changes"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

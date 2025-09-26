@@ -6,16 +6,10 @@ import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { format } from 'date-fns'; // Import format from date-fns
-import { Habit } from "@/types/habit"; // Import the centralized Habit interface
-import { supabase } from "@/lib/supabase"; // Import Supabase client
-
-interface DailyEntry {
-  date: string;
-  text: string;
-  mood: string;
-  timestamp: string;
-}
+import { format } from 'date-fns';
+import { Habit } from "@/types/habit";
+import { DailyEntry } from "@/types/dailyEntry"; // Import the new DailyEntry interface
+import { supabase } from "@/lib/supabase";
 
 interface DailyTrackingRecord {
   [date: string]: {
@@ -28,19 +22,24 @@ const RecordedEntries: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
-  const [dateToDelete, setDateToDelete] = React.useState<string | null>(null);
+  const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null); // Store ID and date
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
 
-  // Function to load entries, habits, and daily tracking from localStorage
+  // Function to load entries, habits, and daily tracking
   const loadAllData = React.useCallback(async () => {
-    const storedEntries = localStorage.getItem("dailyJournalEntries");
-    if (storedEntries) {
-      const parsedEntries: DailyEntry[] = JSON.parse(storedEntries);
-      parsedEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      setDailyEntries(parsedEntries);
-    } else {
+    // Fetch daily entries from Supabase
+    const { data: entriesData, error: entriesError } = await supabase
+      .from('daily_entries')
+      .select('*')
+      .order('date', { ascending: false }); // Order by date descending
+
+    if (entriesError) {
+      console.error("Error fetching daily entries:", entriesError);
+      showError("Failed to load daily entries.");
       setDailyEntries([]);
+    } else {
+      setDailyEntries(entriesData as DailyEntry[]);
     }
 
     // Fetch habits from Supabase
@@ -68,31 +67,36 @@ const RecordedEntries: React.FC = () => {
     loadAllData();
   }, [loadAllData]);
 
-  const handleDeleteClick = (date: string) => {
-    setDateToDelete(date);
+  const handleDeleteClick = (id: string, date: string) => {
+    setEntryToDelete({ id, date });
     setIsDeleteModalOpen(true);
   };
 
-  const confirmDelete = () => {
-    if (dateToDelete) {
-      // Remove entry
-      const updatedEntries = dailyEntries.filter(entry => entry.date !== dateToDelete);
-      localStorage.setItem("dailyJournalEntries", JSON.stringify(updatedEntries));
-      setDailyEntries(updatedEntries);
+  const confirmDelete = async () => {
+    if (!entryToDelete) return;
 
-      // Remove daily tracking for this date
+    const { id: idToDelete, date: dateToDelete } = entryToDelete;
+
+    const { error } = await supabase
+      .from('daily_entries')
+      .delete()
+      .eq('id', idToDelete);
+
+    if (error) {
+      console.error("Error deleting daily entry:", error);
+      showError("Failed to delete daily entry.");
+    } else {
+      // Remove entry from local state
+      setDailyEntries(prev => prev.filter(entry => entry.id !== idToDelete));
+
+      // Remove daily tracking for this date (still in localStorage for now)
       const updatedDailyTracking = { ...dailyTracking };
       delete updatedDailyTracking[dateToDelete];
       localStorage.setItem('dailyHabitTracking', JSON.stringify(updatedDailyTracking));
       setDailyTracking(updatedDailyTracking);
 
-      // Note: Yearly progress and fines are not automatically reverted here,
-      // as they are aggregate calculations. If a user deletes an entry,
-      // they might need to manually adjust yearly goals or fine statuses if
-      // that entry significantly impacted them.
-
       showSuccess("Entry and associated habit tracking deleted successfully!");
-      setDateToDelete(null);
+      setEntryToDelete(null);
       setIsDeleteModalOpen(false);
     }
   };
@@ -102,13 +106,22 @@ const RecordedEntries: React.FC = () => {
     setIsEditModalOpen(true);
   };
 
-  const handleSaveEditedEntry = (updatedEntry: DailyEntry) => {
-    const updatedEntries = dailyEntries.map(entry =>
-      entry.date === updatedEntry.date ? updatedEntry : entry
-    );
-    localStorage.setItem("dailyJournalEntries", JSON.stringify(updatedEntries));
-    setDailyEntries(updatedEntries);
-    // No need for success toast here, as it's handled in the modal
+  const handleSaveEditedEntry = async (updatedEntry: DailyEntry) => {
+    const { id, date, text, mood, timestamp } = updatedEntry;
+    const { error } = await supabase
+      .from('daily_entries')
+      .update({ date, text, mood, timestamp })
+      .eq('id', id);
+
+    if (error) {
+      console.error("Error updating daily entry:", error);
+      showError("Failed to update daily entry.");
+    } else {
+      setDailyEntries(prev => prev.map(entry =>
+        entry.id === updatedEntry.id ? updatedEntry : entry
+      ));
+      showSuccess("Entry updated successfully!");
+    }
   };
 
   return (
@@ -124,12 +137,12 @@ const RecordedEntries: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {dailyEntries.map((entry) => {
             const habitsTrackedForDay = dailyTracking[entry.date];
-            const formattedDate = format(new Date(entry.date), 'do MMMM yyyy'); // Format the date here
+            const formattedDate = format(new Date(entry.date), 'do MMMM yyyy');
             return (
-              <Card key={entry.date} className="flex flex-col justify-between">
+              <Card key={entry.id} className="flex flex-col justify-between">
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
-                    <span>{formattedDate}</span> {/* Display the formatted date */}
+                    <span>{formattedDate}</span>
                     <span className="text-3xl">{entry.mood}</span>
                   </CardTitle>
                 </CardHeader>
@@ -138,7 +151,7 @@ const RecordedEntries: React.FC = () => {
                   {habitsTrackedForDay && Object.keys(habitsTrackedForDay).length > 0 && (
                     <div className="mt-4 pt-2 border-t border-gray-100 text-left">
                       <h4 className="font-semibold text-gray-800 text-sm mb-1">Habits Tracked:</h4>
-                      <ul className="list-none space-y-1"> {/* Changed to list-none for custom bullet */}
+                      <ul className="list-none space-y-1">
                         {Object.entries(habitsTrackedForDay).map(([habitId, trackedValues]) => {
                           const habit = habits.find(h => h.id === habitId);
                           if (habit && trackedValues.length > 0) {
@@ -146,7 +159,7 @@ const RecordedEntries: React.FC = () => {
                               <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
                                 <span className="font-medium">{habit.name}:</span>
-                                <span>{trackedValues[0]}</span> {/* Displaying the single tracked value */}
+                                <span>{trackedValues[0]}</span>
                               </li>
                             );
                           }
@@ -161,7 +174,7 @@ const RecordedEntries: React.FC = () => {
                 </CardContent>
                 <div className="flex justify-end gap-2 p-4 border-t">
                   <Button variant="outline" size="sm" onClick={() => handleEditEntry(entry)}>Edit</Button>
-                  <Button variant="destructive" size="sm" onClick={() => handleDeleteClick(entry.date)}>Delete</Button>
+                  <Button variant="destructive" size="sm" onClick={() => handleDeleteClick(entry.id, entry.date)}>Delete</Button>
                 </div>
               </Card>
             );
@@ -180,7 +193,7 @@ const RecordedEntries: React.FC = () => {
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={confirmDelete}
-        itemToDeleteName={dateToDelete ? `the entry for ${dateToDelete}` : "this entry"}
+        itemToDeleteName={entryToDelete ? `the entry for ${entryToDelete.date}` : "this entry"}
       />
     </div>
   );

@@ -4,29 +4,23 @@ import React from "react";
 import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
-import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal"; // Import the new modal
+import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal";
 import { showSuccess, showError } from "@/utils/toast";
-import { Button } from "@/components/ui/button"; // Assuming you have a Button component
-import { Habit } from "@/types/habit"; // Import the centralized Habit interface
-import { supabase } from "@/lib/supabase"; // Import Supabase client
+import { Button } from "@/components/ui/button";
+import { Habit } from "@/types/habit";
+import { DailyEntry } from "@/types/dailyEntry"; // Import the new DailyEntry interface
+import { supabase } from "@/lib/supabase";
 
-interface DailyEntry {
-  date: string;
-  text: string;
-  mood: string;
-  timestamp: string;
-}
-
-// Data structures for localStorage
+// Data structures for localStorage (still used for tracking and progress)
 interface DailyTrackingRecord {
   [date: string]: {
-    [habitId: string]: string[]; // Array of contributing values tracked for this habit on this date
+    [habitId: string]: string[];
   };
 }
 
 interface YearlyProgressRecord {
   [year: string]: {
-    [habitId: string]: number; // Current achieved count for this habit in this year
+    [habitId: string]: number;
   };
 }
 
@@ -35,11 +29,10 @@ interface DailyEntriesProps {
 }
 
 const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
-  // Function to get today's date in YYYY-MM-DD format
   const getTodayDate = () => {
     const today = new Date();
     const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+    const month = String(today.getMonth() + 1).padStart(2, '0');
     const day = String(today.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
@@ -50,9 +43,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<YearlyProgressRecord>({});
+  const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null); // To store Supabase ID
 
   const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
-  const [pendingEntry, setPendingEntry] = React.useState<DailyEntry | null>(null);
+  const [pendingEntry, setPendingEntry] = React.useState<Omit<DailyEntry, 'id'> | null>(null); // Omit id for pending
 
   // Load habits from Supabase on component mount
   React.useEffect(() => {
@@ -93,61 +87,90 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     localStorage.setItem('yearlyHabitProgress', JSON.stringify(yearlyProgress));
   }, [yearlyProgress]);
 
-  // Effect to load journal entry for selected date
+  // Effect to load journal entry for selected date from Supabase
   React.useEffect(() => {
-    if (entryDate) {
-      const storedEntries = localStorage.getItem("dailyJournalEntries");
-      const dailyEntries: DailyEntry[] = storedEntries ? JSON.parse(storedEntries) : [];
-      const entryForDate = dailyEntries.find(entry => entry.date === entryDate);
+    const fetchDailyEntry = async () => {
+      if (!entryDate) {
+        setJournalText("");
+        setMoodEmoji("😊");
+        setCurrentEntryId(null);
+        return;
+      }
 
-      if (entryForDate) {
-        setJournalText(entryForDate.text);
-        setMoodEmoji(entryForDate.mood);
+      const { data, error } = await supabase
+        .from('daily_entries')
+        .select('*')
+        .eq('date', entryDate)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 means "no rows found"
+        console.error("Error fetching daily entry:", error);
+        showError("Failed to load daily entry.");
+        setJournalText("");
+        setMoodEmoji("😊");
+        setCurrentEntryId(null);
+      } else if (data) {
+        setJournalText(data.text);
+        setMoodEmoji(data.mood);
+        setCurrentEntryId(data.id);
       } else {
         setJournalText("");
         setMoodEmoji("😊");
+        setCurrentEntryId(null);
       }
-    } else {
-      setJournalText("");
-      setMoodEmoji("😊");
-    }
+    };
+    fetchDailyEntry();
   }, [entryDate]);
 
 
-  const saveEntry = (overwrite: boolean = false) => {
+  const saveEntry = async (overwrite: boolean = false) => {
     if (!entryDate || !journalText.trim()) {
       showError("Please select a date and write your journal entry.");
       return;
     }
 
-    const newEntry: DailyEntry = {
+    const entryData = {
       date: entryDate,
       text: journalText.trim(),
       mood: moodEmoji,
       timestamp: new Date().toISOString(),
     };
 
-    const storedEntries = localStorage.getItem("dailyJournalEntries");
-    let dailyEntries: DailyEntry[] = storedEntries ? JSON.parse(storedEntries) : [];
-
-    const existingEntryIndex = dailyEntries.findIndex(entry => entry.date === entryDate);
-
-    if (existingEntryIndex > -1 && !overwrite) {
-      setPendingEntry(newEntry);
+    if (currentEntryId && !overwrite) {
+      // Entry exists, and overwrite not confirmed, show modal
+      setPendingEntry(entryData);
       setShowOverwriteConfirmModal(true);
       return;
     }
 
-    if (existingEntryIndex > -1) {
-      dailyEntries[existingEntryIndex] = newEntry;
+    let error = null;
+    if (currentEntryId && overwrite) {
+      // Update existing entry
+      const { error: updateError } = await supabase
+        .from('daily_entries')
+        .update(entryData)
+        .eq('id', currentEntryId);
+      error = updateError;
     } else {
-      dailyEntries.push(newEntry);
+      // Insert new entry
+      const { data, error: insertError } = await supabase
+        .from('daily_entries')
+        .insert([entryData])
+        .select();
+      error = insertError;
+      if (data && data.length > 0) {
+        setCurrentEntryId(data[0].id); // Set the new ID
+      }
     }
 
-    localStorage.setItem("dailyJournalEntries", JSON.stringify(dailyEntries));
-    showSuccess("Daily entry saved!");
-    setShowOverwriteConfirmModal(false);
-    setPendingEntry(null);
+    if (error) {
+      console.error("Error saving daily entry:", error);
+      showError("Failed to save daily entry.");
+    } else {
+      showSuccess("Daily entry saved!");
+      setShowOverwriteConfirmModal(false);
+      setPendingEntry(null);
+    }
   };
 
   const handleConfirmOverwrite = () => {
@@ -264,7 +287,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         isOpen={showOverwriteConfirmModal}
         onClose={() => setShowOverwriteConfirmModal(false)}
         onConfirm={handleConfirmOverwrite}
-        itemToOverwriteName={`the entry for ${entryDate}`}
+        itemToOverwriteName={pendingEntry ? `the entry for ${pendingEntry.date}` : "this entry"}
       />
     </div>
   );
