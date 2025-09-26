@@ -2,7 +2,7 @@
 
 import React from "react";
 import EditDailyEntryModal from "@/components/EditDailyEntryModal";
-import DeleteConfirmationModal from "@/components/DeleteConfirmationModal"; // Import the new modal
+import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,29 +14,64 @@ interface DailyEntry {
   timestamp: string;
 }
 
+interface Habit {
+  id: string;
+  name: string;
+  color: string;
+  trackingValues: string[];
+  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
+  fineAmount: number;
+  yearlyGoal: {
+    count: number;
+    contributingValues: string[];
+  };
+  createdAt: string;
+}
+
+interface DailyTrackingRecord {
+  [date: string]: {
+    [habitId: string]: string[];
+  };
+}
+
 const RecordedEntries: React.FC = () => {
   const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false); // State for delete modal
-  const [dateToDelete, setDateToDelete] = React.useState<string | null>(null); // State to hold the date of the entry to be deleted
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
+  const [dateToDelete, setDateToDelete] = React.useState<string | null>(null);
+  const [habits, setHabits] = React.useState<Habit[]>([]);
+  const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
 
-  // Function to load entries from localStorage
-  const loadEntries = () => {
+  // Function to load entries, habits, and daily tracking from localStorage
+  const loadAllData = () => {
     const storedEntries = localStorage.getItem("dailyJournalEntries");
     if (storedEntries) {
-      // Sort entries by date in descending order (most recent first)
       const parsedEntries: DailyEntry[] = JSON.parse(storedEntries);
       parsedEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setDailyEntries(parsedEntries);
     } else {
       setDailyEntries([]);
     }
+
+    const storedHabits = localStorage.getItem('dailyJournalHabits');
+    if (storedHabits) {
+      setHabits(JSON.parse(storedHabits));
+    } else {
+      setHabits([]);
+    }
+
+    const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
+    if (storedDailyTracking) {
+      setDailyTracking(JSON.parse(storedDailyTracking));
+    } else {
+      setDailyTracking({});
+    }
   };
 
-  // Load entries on component mount
+  // Load data on component mount
   React.useEffect(() => {
-    loadEntries();
+    loadAllData();
   }, []);
 
   const handleDeleteClick = (date: string) => {
@@ -46,22 +81,25 @@ const RecordedEntries: React.FC = () => {
 
   const confirmDelete = () => {
     if (dateToDelete) {
+      // Remove entry
       const updatedEntries = dailyEntries.filter(entry => entry.date !== dateToDelete);
       localStorage.setItem("dailyJournalEntries", JSON.stringify(updatedEntries));
       setDailyEntries(updatedEntries);
-      showSuccess("Entry deleted successfully!");
+
+      // Remove daily tracking for this date
+      const updatedDailyTracking = { ...dailyTracking };
+      delete updatedDailyTracking[dateToDelete];
+      localStorage.setItem('dailyHabitTracking', JSON.stringify(updatedDailyTracking));
+      setDailyTracking(updatedDailyTracking);
+
+      // Note: Yearly progress and fines are not automatically reverted here,
+      // as they are aggregate calculations. If a user deletes an entry,
+      // they might need to manually adjust yearly goals or fine statuses if
+      // that entry significantly impacted them.
+
+      showSuccess("Entry and associated habit tracking deleted successfully!");
       setDateToDelete(null);
       setIsDeleteModalOpen(false);
-
-      // Optionally, also clear habit tracking for this date if desired
-      // For now, we'll leave habit tracking as is, as it might be useful to keep history
-      // If you want to delete habit tracking for this date:
-      // const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
-      // if (storedDailyTracking) {
-      //   const dailyTracking = JSON.parse(storedDailyTracking);
-      //   delete dailyTracking[dateToDelete];
-      //   localStorage.setItem('dailyHabitTracking', JSON.stringify(dailyTracking));
-      // }
     }
   };
 
@@ -75,7 +113,7 @@ const RecordedEntries: React.FC = () => {
       entry.date === updatedEntry.date ? updatedEntry : entry
     );
     localStorage.setItem("dailyJournalEntries", JSON.stringify(updatedEntries));
-    setDailyEntries(updatedEntries); // Update state to re-render
+    setDailyEntries(updatedEntries);
     // No need for success toast here, as it's handled in the modal
   };
 
@@ -90,26 +128,47 @@ const RecordedEntries: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {dailyEntries.map((entry) => (
-            <Card key={entry.date} className="flex flex-col justify-between">
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>{entry.date}</span>
-                  <span className="text-3xl">{entry.mood}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex-grow">
-                <p className="text-gray-700 text-left line-clamp-4">{entry.text}</p>
-                <p className="text-xs text-gray-500 mt-2 text-right">
-                  Last updated: {new Date(entry.timestamp).toLocaleString()}
-                </p>
-              </CardContent>
-              <div className="flex justify-end gap-2 p-4 border-t">
-                <Button variant="outline" size="sm" onClick={() => handleEditEntry(entry)}>Edit</Button>
-                <Button variant="destructive" size="sm" onClick={() => handleDeleteClick(entry.date)}>Delete</Button>
-              </div>
-            </Card>
-          ))}
+          {dailyEntries.map((entry) => {
+            const habitsTrackedForDay = dailyTracking[entry.date];
+            return (
+              <Card key={entry.date} className="flex flex-col justify-between">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>{entry.date}</span>
+                    <span className="text-3xl">{entry.mood}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-grow">
+                  <p className="text-gray-700 text-left line-clamp-4">{entry.text}</p>
+                  {habitsTrackedForDay && Object.keys(habitsTrackedForDay).length > 0 && (
+                    <div className="mt-4 pt-2 border-t border-gray-100 text-left">
+                      <h4 className="font-semibold text-gray-800 text-sm mb-1">Habits Tracked:</h4>
+                      <ul className="list-disc list-inside text-sm text-gray-600">
+                        {Object.entries(habitsTrackedForDay).map(([habitId, trackedValues]) => {
+                          const habit = habits.find(h => h.id === habitId);
+                          if (habit && trackedValues.length > 0) {
+                            return (
+                              <li key={habitId}>
+                                <span className="font-medium" style={{ color: habit.color }}>{habit.name}:</span> {trackedValues.join(', ')}
+                              </li>
+                            );
+                          }
+                          return null;
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500 mt-2 text-right">
+                    Last updated: {new Date(entry.timestamp).toLocaleString()}
+                  </p>
+                </CardContent>
+                <div className="flex justify-end gap-2 p-4 border-t">
+                  <Button variant="outline" size="sm" onClick={() => handleEditEntry(entry)}>Edit</Button>
+                  <Button variant="destructive" size="sm" onClick={() => handleDeleteClick(entry.date)}>Delete</Button>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
