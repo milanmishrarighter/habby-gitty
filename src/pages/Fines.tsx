@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { format, isAfter, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addWeeks, addMonths, isSameWeek, isSameMonth, isBefore } from 'date-fns';
+import { format, isAfter, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addWeeks, addMonths, isSameWeek, isSameMonth, isBefore, addDays, subDays } from 'date-fns';
 import { getWeeksInYear, getMonthsInYear } from "@/lib/date-utils";
 import FineCard from "@/components/FineCard";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
@@ -104,13 +104,14 @@ const Fines: React.FC = () => {
   const currentYear = new Date().getFullYear();
   const allWeeks = getWeeksInYear(currentYear);
   const allMonths = getMonthsInYear(currentYear);
+  const today = new Date();
 
   const filteredWeeks = lastEntryDate
-    ? allWeeks.filter(week => isBefore(week.start, addWeeks(lastEntryDate, 1)) || isSameWeek(week.start, lastEntryDate, { weekStartsOn: 1 })).reverse()
+    ? allWeeks.filter(week => isBefore(week.start, addDays(endOfWeek(lastEntryDate, { weekStartsOn: 1 }), 1))).reverse()
     : [];
 
   const filteredMonths = lastEntryDate
-    ? allMonths.filter(month => isBefore(month.start, addMonths(lastEntryDate, 1)) || isSameMonth(month.start, lastEntryDate)).reverse()
+    ? allMonths.filter(month => isBefore(month.start, addDays(endOfMonth(lastEntryDate), 1))).reverse()
     : [];
 
   return (
@@ -158,6 +159,7 @@ const Fines: React.FC = () => {
                 dailyTracking={dailyTracking}
                 finesStatus={finesStatus}
                 onUpdateFineStatus={handleUpdateFineStatus}
+                isCurrentPeriod={isSameWeek(week.start, today, { weekStartsOn: 1 })}
               />
             ))
           )}
@@ -183,6 +185,7 @@ const Fines: React.FC = () => {
                 dailyTracking={dailyTracking}
                 finesStatus={finesStatus}
                 onUpdateFineStatus={handleUpdateFineStatus}
+                isCurrentPeriod={isSameMonth(month.start, today)}
               />
             ))
           )}

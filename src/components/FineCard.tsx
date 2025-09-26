@@ -1,11 +1,11 @@
 "use client";
 
 import React from 'react';
-import { format } from 'date-fns';
+import { format, isSameWeek, isSameMonth } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { showSuccess } from "@/utils/toast";
-import { getDatesInPeriod, formatDateRange } from "@/lib/date-utils";
+import { formatDateRange, getDatesInPeriod } from "@/lib/date-utils";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
 
 // Interfaces from existing files (copied for self-containment of FineCard)
@@ -39,6 +39,7 @@ interface FineCardProps {
   dailyTracking: DailyTrackingRecord;
   finesStatus: FinesPeriodData;
   onUpdateFineStatus: (periodKey: string, updatedFine: FineDetail) => void;
+  isCurrentPeriod: boolean; // New prop to indicate if it's the current week/month
 }
 
 const FineCard: React.FC<FineCardProps> = ({
@@ -51,6 +52,7 @@ const FineCard: React.FC<FineCardProps> = ({
   dailyTracking,
   finesStatus,
   onUpdateFineStatus,
+  isCurrentPeriod,
 }) => {
   const [finesForPeriod, setFinesForPeriod] = React.useState<FineDetail[]>([]);
 
@@ -70,8 +72,8 @@ const FineCard: React.FC<FineCardProps> = ({
               }
             });
 
-            // Fine logic: if actual count is not equal to the condition count
-            if (actualCount !== condition.count) {
+            // Fine logic: if actual count EXCEEDS the condition count
+            if (actualCount > condition.count) {
               const existingFine = finesStatus[periodKey]?.[habit.id]?.find(
                 f => f.trackingValue === condition.trackingValue
               );
@@ -79,7 +81,7 @@ const FineCard: React.FC<FineCardProps> = ({
                 habitId: habit.id,
                 habitName: habit.name,
                 fineAmount: habit.fineAmount,
-                cause: `Tracking value '${condition.trackingValue}' occurred ${actualCount} times, expected ${condition.count} times.`,
+                cause: `Tracking value '${condition.trackingValue}' occurred ${actualCount} times, which exceeds the allowed ${condition.count} times.`,
                 status: existingFine ? existingFine.status : 'unpaid',
                 trackingValue: condition.trackingValue,
                 conditionCount: condition.count,
@@ -105,7 +107,7 @@ const FineCard: React.FC<FineCardProps> = ({
   const allPaid = finesForPeriod.length > 0 && finesForPeriod.every(fine => fine.status === 'paid');
 
   return (
-    <Card className={`flex flex-col ${allPaid ? 'bg-green-50 border-green-300' : 'bg-white border-gray-200'}`}>
+    <Card className={`flex flex-col ${isCurrentPeriod ? 'bg-blue-50 border-blue-300' : (allPaid ? 'bg-green-50 border-green-300' : 'bg-white border-gray-200')}`}>
       <CardHeader className="pb-2">
         <CardTitle className="text-lg font-semibold">
           {periodLabel}
@@ -114,7 +116,7 @@ const FineCard: React.FC<FineCardProps> = ({
       </CardHeader>
       <CardContent className="flex-grow">
         {finesForPeriod.length === 0 ? (
-          <p className="text-gray-600 italic">No fines found for this {periodType.slice(0, -2)}.</p>
+          <p className="text-gray-600 italic">Congratulations! No fines were collected for this {periodType.slice(0, -2)}.</p>
         ) : (
           <div className="space-y-3">
             {finesForPeriod.map((fine, index) => (
