@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { format, isAfter, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addWeeks, addMonths, isSameWeek, isSameMonth } from 'date-fns';
+import { format, isAfter, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addWeeks, addMonths, isSameWeek, isSameMonth, isBefore } from 'date-fns';
 import { getWeeksInYear, getMonthsInYear } from "@/lib/date-utils";
 import FineCard from "@/components/FineCard";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
