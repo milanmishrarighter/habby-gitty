@@ -106,11 +106,11 @@ const Fines: React.FC = () => {
   const allMonths = getMonthsInYear(currentYear);
 
   const filteredWeeks = lastEntryDate
-    ? allWeeks.filter(week => isBefore(week.start, addWeeks(lastEntryDate, 1)) || isSameWeek(week.start, lastEntryDate, { weekStartsOn: 1 }))
+    ? allWeeks.filter(week => isBefore(week.start, addWeeks(lastEntryDate, 1)) || isSameWeek(week.start, lastEntryDate, { weekStartsOn: 1 })).reverse()
     : [];
 
   const filteredMonths = lastEntryDate
-    ? allMonths.filter(month => isBefore(month.start, addMonths(lastEntryDate, 1)) || isSameMonth(month.start, lastEntryDate))
+    ? allMonths.filter(month => isBefore(month.start, addMonths(lastEntryDate, 1)) || isSameMonth(month.start, lastEntryDate)).reverse()
     : [];
 
   return (
