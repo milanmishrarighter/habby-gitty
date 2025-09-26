@@ -148,7 +148,8 @@ const RecordedEntries: React.FC = () => {
                           const habit = habits.find(h => h.id === habitId);
                           if (habit && trackedValues.length > 0) {
                             return (
-                              <li key={habitId}>
+                              <li key={habitId} className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
                                 <span className="font-medium" style={{ color: habit.color }}>{habit.name}:</span> {trackedValues.join(', ')}
                               </li>
                             );
