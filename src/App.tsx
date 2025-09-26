@@ -6,6 +6,7 @@ import Fines from "./pages/Fines";
 import HabitSetup from "./pages/HabitSetup";
 import NotFound from "./pages/NotFound";
 import { Toaster as Sonner } from "@/components/ui/sonner"; // Keeping sonner for toasts
+import SupabaseConnectionStatus from "@/components/SupabaseConnectionStatus"; // Import the new component
 
 const App = () => {
   const [activeTab, setActiveTab] = React.useState("daily");
@@ -14,6 +15,9 @@ const App = () => {
     <div className="flex flex-col items-center">
       <Sonner /> {/* To display toasts */}
       <div className="w-full max-w-4xl p-4 sm:p-6 lg:p-8 bg-white shadow-xl rounded-2xl my-8">
+        {/* Supabase Connection Status Indicator */}
+        <SupabaseConnectionStatus />
+
         {/* Header */}
         <header className="text-center mb-6">
           <h1 className="text-4xl font-extrabold text-gray-800 tracking-tight">Daily Journal and Tracker</h1>
