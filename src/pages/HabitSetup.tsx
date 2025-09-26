@@ -83,6 +83,10 @@ const HabitSetup: React.FC = () => {
     }
   };
 
+  const removeFrequencyCondition = (indexToRemove: number) => {
+    setFrequencyConditions((prev) => prev.filter((_, i) => i !== indexToRemove));
+  };
+
   const handleContributingValueChange = (value: string, isChecked: boolean) => {
     setContributingValues((prev) =>
       isChecked ? [...prev, value] : prev.filter((v) => v !== value)
@@ -211,6 +215,16 @@ const HabitSetup: React.FC = () => {
                   value={condition.count}
                   onChange={(e) => handleFrequencyChange(index, "count", e.target.value === "" ? "" : Number(e.target.value))}
                 />
+                {frequencyConditions.length > 1 && ( // Only show remove button if there's more than one condition
+                  <button
+                    type="button"
+                    onClick={() => removeFrequencyCondition(index)}
+                    className="text-red-500 hover:text-red-700 focus:outline-none p-2 rounded-full hover:bg-red-100"
+                    aria-label="Remove frequency condition"
+                  >
+                    &times;
+                  </button>
+                )}
               </div>
             ))}
           </div>
