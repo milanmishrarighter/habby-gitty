@@ -2,7 +2,9 @@
 
 import React from "react";
 import HabitCard from "@/components/HabitCard";
+import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { showSuccess, showError } from "@/utils/toast";
+import { Button } from "@/components/ui/button"; // Assuming you have a Button component
 
 interface Habit {
   id: string; // Added unique ID
@@ -24,6 +26,24 @@ interface FrequencyConditionInput {
   count: number | "";
 }
 
+interface DailyTrackingRecord {
+  [date: string]: {
+    [habitId: string]: string[];
+  };
+}
+
+interface YearlyProgressRecord {
+  [year: string]: {
+    [habitId: string]: number;
+  };
+}
+
+interface FinesPeriodData {
+  [periodKey: string]: {
+    [habitId: string]: any[]; // Simplified for cleanup logic
+  };
+}
+
 const MAX_FREQUENCY_CONDITIONS = 5;
 
 const HabitSetup: React.FC = () => {
@@ -39,6 +59,10 @@ const HabitSetup: React.FC = () => {
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
+  const [editingHabitId, setEditingHabitId] = React.useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
+  const [habitToDelete, setHabitToDelete] = React.useState<{ id: string; name: string } | null>(null);
+
   // Load habits from localStorage on initial mount
   React.useEffect(() => {
     const storedHabits = localStorage.getItem('dailyJournalHabits');
@@ -51,6 +75,18 @@ const HabitSetup: React.FC = () => {
   React.useEffect(() => {
     localStorage.setItem('dailyJournalHabits', JSON.stringify(habits));
   }, [habits]);
+
+  const resetForm = () => {
+    setHabitName("");
+    setHabitColor("#4F46E5");
+    setTempTrackingValues([]);
+    setTrackingValueInput("");
+    setFrequencyConditions([{ trackingValue: "", frequency: "weekly", count: "" }]);
+    setFineAmount("");
+    setYearlyGoalCount("");
+    setContributingValues([]);
+    setEditingHabitId(null);
+  };
 
   const addTrackingValue = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
@@ -93,14 +129,14 @@ const HabitSetup: React.FC = () => {
     );
   };
 
-  const addHabit = () => {
+  const handleSaveHabit = () => {
     if (!habitName.trim()) {
       showError("Habit name cannot be empty.");
       return;
     }
 
     const newHabit: Habit = {
-      id: crypto.randomUUID(), // Generate a unique ID
+      id: editingHabitId || crypto.randomUUID(), // Use existing ID if editing, otherwise generate new
       name: habitName.trim(),
       color: habitColor,
       trackingValues: tempTrackingValues,
@@ -112,26 +148,118 @@ const HabitSetup: React.FC = () => {
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
         contributingValues: contributingValues,
       },
-      createdAt: new Date().toISOString(),
+      createdAt: editingHabitId ? habits.find(h => h.id === editingHabitId)?.createdAt || new Date().toISOString() : new Date().toISOString(),
     };
 
-    setHabits((prev) => [...prev, newHabit]);
-    showSuccess("Habit added successfully!");
+    if (editingHabitId) {
+      setHabits((prev) => prev.map(h => h.id === editingHabitId ? newHabit : h));
+      showSuccess("Habit updated successfully!");
+    } else {
+      setHabits((prev) => [...prev, newHabit]);
+      showSuccess("Habit added successfully!");
+    }
 
-    // Reset form
-    setHabitName("");
-    setHabitColor("#4F46E5");
-    setTempTrackingValues([]);
-    setTrackingValueInput("");
-    setFrequencyConditions([{ trackingValue: "", frequency: "weekly", count: "" }]);
-    setFineAmount("");
-    setYearlyGoalCount("");
-    setContributingValues([]);
+    resetForm();
   };
+
+  const handleEditHabit = (habit: Habit) => {
+    setEditingHabitId(habit.id);
+    setHabitName(habit.name);
+    setHabitColor(habit.color);
+    setTempTrackingValues(habit.trackingValues);
+    setTrackingValueInput(""); // Clear input field
+    setFrequencyConditions(
+      habit.frequencyConditions.length > 0
+        ? habit.frequencyConditions.map(cond => ({ ...cond, count: cond.count === 0 ? "" : cond.count }))
+        : [{ trackingValue: "", frequency: "weekly", count: "" }]
+    );
+    setFineAmount(habit.fineAmount === 0 ? "" : habit.fineAmount);
+    setYearlyGoalCount(habit.yearlyGoal.count === 0 ? "" : habit.yearlyGoal.count);
+    setContributingValues(habit.yearlyGoal.contributingValues);
+  };
+
+  const handleDeleteClick = (id: string, name: string) => {
+    setHabitToDelete({ id, name });
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDeleteHabit = () => {
+    if (!habitToDelete) return;
+
+    const idToDelete = habitToDelete.id;
+
+    // 1. Remove habit from dailyJournalHabits
+    setHabits(prev => prev.filter(h => h.id !== idToDelete));
+
+    // 2. Clean up dailyHabitTracking
+    const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
+    if (storedDailyTracking) {
+      const dailyTracking: DailyTrackingRecord = JSON.parse(storedDailyTracking);
+      const updatedDailyTracking: DailyTrackingRecord = {};
+      for (const date in dailyTracking) {
+        const dateTracking = dailyTracking[date];
+        const newDateTracking: { [habitId: string]: string[] } = {};
+        for (const habitId in dateTracking) {
+          if (habitId !== idToDelete) {
+            newDateTracking[habitId] = dateTracking[habitId];
+          }
+        }
+        if (Object.keys(newDateTracking).length > 0) {
+          updatedDailyTracking[date] = newDateTracking;
+        }
+      }
+      localStorage.setItem('dailyHabitTracking', JSON.stringify(updatedDailyTracking));
+    }
+
+    // 3. Clean up yearlyHabitProgress
+    const storedYearlyProgress = localStorage.getItem('yearlyHabitProgress');
+    if (storedYearlyProgress) {
+      const yearlyProgress: YearlyProgressRecord = JSON.parse(storedYearlyProgress);
+      const updatedYearlyProgress: YearlyProgressRecord = {};
+      for (const year in yearlyProgress) {
+        const yearProgress = yearlyProgress[year];
+        const newYearProgress: { [habitId: string]: number } = {};
+        for (const habitId in yearProgress) {
+          if (habitId !== idToDelete) {
+            newYearProgress[habitId] = yearProgress[habitId];
+          }
+        }
+        if (Object.keys(newYearProgress).length > 0) {
+          updatedYearlyProgress[year] = newYearProgress;
+        }
+      }
+      localStorage.setItem('yearlyHabitProgress', JSON.stringify(updatedYearlyProgress));
+    }
+
+    // 4. Clean up dailyJournalFinesStatus
+    const storedFinesStatus = localStorage.getItem('dailyJournalFinesStatus');
+    if (storedFinesStatus) {
+      const finesStatus: FinesPeriodData = JSON.parse(storedFinesStatus);
+      const updatedFinesStatus: FinesPeriodData = {};
+      for (const periodKey in finesStatus) {
+        const periodFines = finesStatus[periodKey];
+        const newPeriodFines: { [habitId: string]: any[] } = {};
+        for (const habitId in periodFines) {
+          if (habitId !== idToDelete) {
+            newPeriodFines[habitId] = periodFines[habitId];
+          }
+        }
+        if (Object.keys(newPeriodFines).length > 0) {
+          updatedFinesStatus[periodKey] = newPeriodFines;
+        }
+      }
+      localStorage.setItem('dailyJournalFinesStatus', JSON.stringify(updatedFinesStatus));
+    }
+
+    showSuccess(`Habit '${habitToDelete.name}' and its associated data deleted successfully!`);
+    setIsDeleteModalOpen(false);
+    setHabitToDelete(null);
+  };
+
 
   return (
     <div id="setup" className="tab-content text-center">
-      <h2 className="text-2xl font-bold text-gray-800 mb-4">Habit Setup</h2>
+      <h2 className="text-2xl font-bold text-gray-800 mb-4">{editingHabitId ? "Edit Habit" : "Habit Setup"}</h2>
       <p className="text-gray-600 mb-6">Create and assign a color to your habits to track them easily.</p>
       <div className="flex flex-col items-center justify-center space-y-4">
         {/* Habit Name Input */}
@@ -285,14 +413,25 @@ const HabitSetup: React.FC = () => {
           </div>
         </div>
 
-        {/* Add Habit Button */}
-        <button
-          id="add-habit-button"
-          className="px-6 py-3 bg-blue-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
-          onClick={addHabit}
-        >
-          Add Habit
-        </button>
+        {/* Add/Update Habit Button */}
+        <div className="flex gap-4">
+          {editingHabitId && (
+            <Button
+              variant="outline"
+              onClick={resetForm}
+              className="px-6 py-3 font-bold text-lg rounded-full shadow-lg transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-gray-500 focus:ring-opacity-50"
+            >
+              Cancel Edit
+            </Button>
+          )}
+          <button
+            id="add-habit-button"
+            className="px-6 py-3 bg-blue-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
+            onClick={handleSaveHabit}
+          >
+            {editingHabitId ? "Update Habit" : "Add Habit"}
+          </button>
+        </div>
       </div>
 
       {/* Your Habits Section */}
@@ -306,12 +445,24 @@ const HabitSetup: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {habits.map((habit) => (
-                <HabitCard key={habit.id} habit={habit} />
+                <HabitCard
+                  key={habit.id}
+                  habit={habit}
+                  onEdit={handleEditHabit}
+                  onDelete={handleDeleteClick}
+                />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <DeleteConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={confirmDeleteHabit}
+        itemToDeleteName={habitToDelete ? `the habit "${habitToDelete.name}"` : "this habit"}
+      />
     </div>
   );
 };

@@ -3,7 +3,9 @@
 import React from "react";
 import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
+import DeleteConfirmationModal from "@/components/DeleteConfirmationModal"; // Reusing for overwrite confirmation
 import { showSuccess, showError } from "@/utils/toast";
+import { Button } from "@/components/ui/button"; // Assuming you have a Button component
 
 interface DailyEntry {
   date: string;
@@ -60,6 +62,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<YearlyProgressRecord>({});
 
+  const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
+  const [pendingEntry, setPendingEntry] = React.useState<DailyEntry | null>(null);
+
   // Load habits on component mount
   React.useEffect(() => {
     const storedHabits = localStorage.getItem('dailyJournalHabits');
@@ -110,7 +115,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   }, [entryDate]);
 
 
-  const saveEntry = () => {
+  const saveEntry = (overwrite: boolean = false) => {
     if (!entryDate || !journalText.trim()) {
       showError("Please select a date and write your journal entry.");
       return;
@@ -126,8 +131,14 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     const storedEntries = localStorage.getItem("dailyJournalEntries");
     let dailyEntries: DailyEntry[] = storedEntries ? JSON.parse(storedEntries) : [];
 
-    // Check if an entry for this date already exists and update it
     const existingEntryIndex = dailyEntries.findIndex(entry => entry.date === entryDate);
+
+    if (existingEntryIndex > -1 && !overwrite) {
+      setPendingEntry(newEntry);
+      setShowOverwriteConfirmModal(true);
+      return;
+    }
+
     if (existingEntryIndex > -1) {
       dailyEntries[existingEntryIndex] = newEntry;
     } else {
@@ -135,8 +146,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     }
 
     localStorage.setItem("dailyJournalEntries", JSON.stringify(dailyEntries));
-
     showSuccess("Daily entry saved!");
+    setShowOverwriteConfirmModal(false);
+    setPendingEntry(null);
+  };
+
+  const handleConfirmOverwrite = () => {
+    saveEntry(true); // Proceed with saving, indicating overwrite is confirmed
   };
 
   const handleUpdateTracking = (habitId: string, date: string, trackedValuesForDay: string[], newYearlyProgress: number) => {
@@ -239,11 +255,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         <button
           id="save-button-bottom"
           className="px-6 py-3 bg-blue-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
-          onClick={saveEntry}
+          onClick={() => saveEntry()}
         >
           Save Entry
         </button>
       </div>
+
+      <DeleteConfirmationModal
+        isOpen={showOverwriteConfirmModal}
+        onClose={() => setShowOverwriteConfirmModal(false)}
+        onConfirm={handleConfirmOverwrite}
+        itemToDeleteName={`the existing entry for ${entryDate}`}
+      />
     </div>
   );
 };

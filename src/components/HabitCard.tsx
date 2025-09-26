@@ -1,8 +1,10 @@
 "use client";
 
 import React from 'react';
+import { Button } from "@/components/ui/button"; // Assuming you have a Button component
 
 interface Habit {
+  id: string;
   name: string;
   color: string;
   trackingValues: string[];
@@ -17,9 +19,11 @@ interface Habit {
 
 interface HabitCardProps {
   habit: Habit;
+  onEdit: (habit: Habit) => void;
+  onDelete: (habitId: string, habitName: string) => void;
 }
 
-const HabitCard: React.FC<HabitCardProps> = ({ habit }) => {
+const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
   return (
     <div className="p-4 rounded-lg shadow-md flex flex-col space-y-2" style={{ backgroundColor: `${habit.color}33` }}>
       <div className="flex items-center justify-between">
@@ -65,6 +69,10 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit }) => {
           )}
         </div>
       )}
+      <div className="flex justify-end gap-2 mt-4">
+        <Button variant="outline" size="sm" onClick={() => onEdit(habit)}>Edit</Button>
+        <Button variant="destructive" size="sm" onClick={() => onDelete(habit.id, habit.name)}>Delete</Button>
+      </div>
     </div>
   );
 };
