@@ -26,7 +26,7 @@ export const getWeeksInYear = (year: number) => {
       start: currentWeekStart,
       end: weekEnd,
       label: `Week ${format(currentWeekStart, 'w')}`,
-      periodKey: format(currentWeekStart, 'yyyy-Www'), // e.g., 2025-W39
+      periodKey: format(currentWeekStart, 'yyyy-\'W\'ww'), // e.g., 2025-W39 - Escaped 'W'
     });
     currentWeekStart = addWeeks(currentWeekStart, 1);
   }
