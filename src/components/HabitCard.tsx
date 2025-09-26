@@ -2,20 +2,7 @@
 
 import React from 'react';
 import { Button } from "@/components/ui/button"; // Assuming you have a Button component
-
-interface Habit {
-  id: string;
-  name: string;
-  color: string;
-  trackingValues: string[];
-  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
-  fineAmount: number;
-  yearlyGoal: {
-    count: number;
-    contributingValues: string[];
-  };
-  createdAt: Date;
-}
+import { Habit } from "@/types/habit"; // Import the centralized Habit interface
 
 interface HabitCardProps {
   habit: Habit;

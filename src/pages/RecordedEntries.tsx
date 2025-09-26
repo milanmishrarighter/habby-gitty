@@ -7,26 +7,13 @@ import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from 'date-fns'; // Import format from date-fns
+import { Habit } from "@/types/habit"; // Import the centralized Habit interface
 
 interface DailyEntry {
   date: string;
   text: string;
   mood: string;
   timestamp: string;
-}
-
-interface Habit {
-  id: string;
-  name: string;
-  color: string;
-  trackingValues: string[];
-  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
-  fineAmount: number;
-  yearlyGoal: {
-    count: number;
-    contributingValues: string[];
-  };
-  createdAt: string;
 }
 
 interface DailyTrackingRecord {

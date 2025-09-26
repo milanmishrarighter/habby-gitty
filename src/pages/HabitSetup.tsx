@@ -3,23 +3,11 @@
 import React from "react";
 import HabitCard from "@/components/HabitCard";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
-import EditHabitModal from "@/components/EditHabitModal"; // Import the new modal
+import EditHabitModal from "@/components/EditHabitModal";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
-
-interface Habit {
-  id: string;
-  name: string;
-  color: string;
-  trackingValues: string[];
-  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
-  fineAmount: number;
-  yearlyGoal: {
-    count: number;
-    contributingValues: string[];
-  };
-  createdAt: string;
-}
+import { Habit } from "@/types/habit"; // Import the centralized Habit interface
+import { supabase } from "@/lib/supabase"; // Import Supabase client
 
 interface FrequencyConditionInput {
   trackingValue: string;
@@ -66,18 +54,35 @@ const HabitSetup: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [habitToEdit, setHabitToEdit] = React.useState<Habit | null>(null);
 
-  // Load habits from localStorage on initial mount
-  React.useEffect(() => {
-    const storedHabits = localStorage.getItem('dailyJournalHabits');
-    if (storedHabits) {
-      setHabits(JSON.parse(storedHabits));
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // Function to fetch habits from Supabase
+  const fetchHabits = React.useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    const { data, error } = await supabase
+      .from('habits')
+      .select('*')
+      .order('created_at', { ascending: false }); // Order by creation date
+
+    if (error) {
+      console.error("Error fetching habits:", error);
+      setError("Failed to load habits. Please try again.");
+      showError("Failed to load habits.");
+    } else {
+      setHabits(data as Habit[]);
     }
+    setIsLoading(false);
   }, []);
 
-  // Save habits to localStorage whenever the habits state changes
+  // Load habits from Supabase on initial mount
   React.useEffect(() => {
-    localStorage.setItem('dailyJournalHabits', JSON.stringify(habits));
-  }, [habits]);
+    fetchHabits();
+  }, [fetchHabits]);
+
+  // Note: We no longer save habits to localStorage directly from this component,
+  // as Supabase is now the source of truth.
 
   const resetForm = () => {
     setHabitName("");
@@ -131,31 +136,42 @@ const HabitSetup: React.FC = () => {
     );
   };
 
-  const handleAddHabit = () => {
+  const handleAddHabit = async () => {
     if (!habitName.trim()) {
       showError("Habit name cannot be empty.");
       return;
     }
 
-    const newHabit: Habit = {
-      id: crypto.randomUUID(),
+    const newHabitData = {
       name: habitName.trim(),
       color: habitColor,
-      trackingValues: tempTrackingValues,
-      frequencyConditions: frequencyConditions
+      tracking_values: tempTrackingValues, // Matches Supabase column name
+      frequency_conditions: frequencyConditions // Matches Supabase column name
         .filter(cond => cond.trackingValue && cond.count !== "")
         .map(cond => ({ ...cond, count: Number(cond.count) as number })),
-      fineAmount: typeof fineAmount === 'number' ? fineAmount : 0,
-      yearlyGoal: {
+      fine_amount: typeof fineAmount === 'number' ? fineAmount : 0, // Matches Supabase column name
+      yearly_goal: {
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
         contributingValues: contributingValues,
       },
-      createdAt: new Date().toISOString(),
+      // created_at will be set by Supabase DEFAULT NOW()
     };
 
-    setHabits((prev) => [...prev, newHabit]);
-    showSuccess("Habit added successfully!");
-    resetForm();
+    setIsLoading(true);
+    const { data, error } = await supabase
+      .from('habits')
+      .insert([newHabitData])
+      .select(); // Select the newly inserted row
+
+    if (error) {
+      console.error("Error adding habit:", error);
+      showError("Failed to add habit.");
+    } else if (data && data.length > 0) {
+      setHabits((prev) => [data[0] as Habit, ...prev]); // Add the Supabase-returned habit
+      showSuccess("Habit added successfully!");
+      resetForm();
+    }
+    setIsLoading(false);
   };
 
   const handleEditHabitClick = (habit: Habit) => {
@@ -163,9 +179,34 @@ const HabitSetup: React.FC = () => {
     setIsEditModalOpen(true);
   };
 
-  const handleSaveEditedHabit = (updatedHabit: Habit) => {
-    setHabits((prev) => prev.map(h => h.id === updatedHabit.id ? updatedHabit : h));
-    // Success toast is handled inside the modal
+  const handleSaveEditedHabit = async (updatedHabit: Habit) => {
+    // Prepare data for Supabase, converting camelCase to snake_case for columns
+    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, created_at } = updatedHabit;
+    const updatedHabitData = {
+      name,
+      color,
+      tracking_values: trackingValues,
+      frequency_conditions: frequencyConditions,
+      fine_amount: fineAmount,
+      yearly_goal: yearlyGoal,
+      created_at, // Keep original created_at
+    };
+
+    setIsLoading(true);
+    const { data, error } = await supabase
+      .from('habits')
+      .update(updatedHabitData)
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error("Error updating habit:", error);
+      showError("Failed to update habit.");
+    } else if (data && data.length > 0) {
+      setHabits((prev) => prev.map(h => h.id === id ? data[0] as Habit : h));
+      // Success toast is handled inside the modal
+    }
+    setIsLoading(false);
   };
 
   const handleDeleteClick = (id: string, name: string) => {
@@ -173,79 +214,107 @@ const HabitSetup: React.FC = () => {
     setIsDeleteModalOpen(true);
   };
 
-  const confirmDeleteHabit = () => {
+  const confirmDeleteHabit = async () => {
     if (!habitToDelete) return;
 
     const idToDelete = habitToDelete.id;
 
-    // 1. Remove habit from dailyJournalHabits
-    setHabits(prev => prev.filter(h => h.id !== idToDelete));
+    setIsLoading(true);
+    const { error } = await supabase
+      .from('habits')
+      .delete()
+      .eq('id', idToDelete);
 
-    // 2. Clean up dailyHabitTracking
-    const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
-    if (storedDailyTracking) {
-      const dailyTracking: DailyTrackingRecord = JSON.parse(storedDailyTracking);
-      const updatedDailyTracking: DailyTrackingRecord = {};
-      for (const date in dailyTracking) {
-        const dateTracking = dailyTracking[date];
-        const newDateTracking: { [habitId: string]: string[] } = {};
-        for (const habitId in dateTracking) {
-          if (habitId !== idToDelete) {
-            newDateTracking[habitId] = dateTracking[habitId];
+    if (error) {
+      console.error("Error deleting habit:", error);
+      showError("Failed to delete habit.");
+    } else {
+      // 1. Remove habit from local state
+      setHabits(prev => prev.filter(h => h.id !== idToDelete));
+
+      // 2. Clean up dailyHabitTracking (still in localStorage for now)
+      const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
+      if (storedDailyTracking) {
+        const dailyTracking: DailyTrackingRecord = JSON.parse(storedDailyTracking);
+        const updatedDailyTracking: DailyTrackingRecord = {};
+        for (const date in dailyTracking) {
+          const dateTracking = dailyTracking[date];
+          const newDateTracking: { [habitId: string]: string[] } = {};
+          for (const habitId in dateTracking) {
+            if (habitId !== idToDelete) {
+              newDateTracking[habitId] = dateTracking[habitId];
+            }
+          }
+          if (Object.keys(newDateTracking).length > 0) {
+            updatedDailyTracking[date] = newDateTracking;
           }
         }
-        if (Object.keys(newDateTracking).length > 0) {
-          updatedDailyTracking[date] = newDateTracking;
-        }
+        localStorage.setItem('dailyHabitTracking', JSON.stringify(updatedDailyTracking));
       }
-      localStorage.setItem('dailyHabitTracking', JSON.stringify(updatedDailyTracking));
-    }
 
-    // 3. Clean up yearlyHabitProgress
-    const storedYearlyProgress = localStorage.getItem('yearlyHabitProgress');
-    if (storedYearlyProgress) {
-      const yearlyProgress: YearlyProgressRecord = JSON.parse(storedYearlyProgress);
-      const updatedYearlyProgress: YearlyProgressRecord = {};
-      for (const year in yearlyProgress) {
-        const yearProgress = yearlyProgress[year];
-        const newYearProgress: { [habitId: string]: number } = {};
-        for (const habitId in yearProgress) {
-          if (habitId !== idToDelete) {
-            newYearProgress[habitId] = yearProgress[habitId];
+      // 3. Clean up yearlyHabitProgress (still in localStorage for now)
+      const storedYearlyProgress = localStorage.getItem('yearlyHabitProgress');
+      if (storedYearlyProgress) {
+        const yearlyProgress: YearlyProgressRecord = JSON.parse(storedYearlyProgress);
+        const updatedYearlyProgress: YearlyProgressRecord = {};
+        for (const year in yearlyProgress) {
+          const yearProgress = yearlyProgress[year];
+          const newYearProgress: { [habitId: string]: number } = {};
+          for (const habitId in yearProgress) {
+            if (habitId !== idToDelete) {
+              newYearProgress[habitId] = yearProgress[habitId];
+            }
+          }
+          if (Object.keys(newYearProgress).length > 0) {
+            updatedYearlyProgress[year] = newYearProgress;
           }
         }
-        if (Object.keys(newYearProgress).length > 0) {
-          updatedYearlyProgress[year] = newYearProgress;
-        }
+        localStorage.setItem('yearlyHabitProgress', JSON.stringify(updatedYearlyProgress));
       }
-      localStorage.setItem('yearlyHabitProgress', JSON.stringify(updatedYearlyProgress));
-    }
 
-    // 4. Clean up dailyJournalFinesStatus
-    const storedFinesStatus = localStorage.getItem('dailyJournalFinesStatus');
-    if (storedFinesStatus) {
-      const finesStatus: FinesPeriodData = JSON.parse(storedFinesStatus);
-      const updatedFinesStatus: FinesPeriodData = {};
-      for (const periodKey in finesStatus) {
-        const periodFines = finesStatus[periodKey];
-        const newPeriodFines: { [habitId: string]: any[] } = {};
-        for (const habitId in periodFines) {
-          if (habitId !== idToDelete) {
-            newPeriodFines[habitId] = periodFines[habitId];
+      // 4. Clean up dailyJournalFinesStatus (still in localStorage for now)
+      const storedFinesStatus = localStorage.getItem('dailyJournalFinesStatus');
+      if (storedFinesStatus) {
+        const finesStatus: FinesPeriodData = JSON.parse(storedFinesStatus);
+        const updatedFinesStatus: FinesPeriodData = {};
+        for (const periodKey in finesStatus) {
+          const periodFines = finesStatus[periodKey];
+          const newPeriodFines: { [habitId: string]: any[] } = {};
+          for (const habitId in periodFines) {
+            if (habitId !== idToDelete) {
+              newPeriodFines[habitId] = periodFines[habitId];
+            }
+          }
+          if (Object.keys(newPeriodFines).length > 0) {
+            updatedFinesStatus[periodKey] = newPeriodFines;
           }
         }
-        if (Object.keys(newPeriodFines).length > 0) {
-          updatedFinesStatus[periodKey] = newPeriodFines;
-        }
+        localStorage.setItem('dailyJournalFinesStatus', JSON.stringify(updatedFinesStatus));
       }
-      localStorage.setItem('dailyJournalFinesStatus', JSON.stringify(updatedFinesStatus));
-    }
 
-    showSuccess(`Habit '${habitToDelete.name}' and its associated data deleted successfully!`);
-    setIsDeleteModalOpen(false);
-    setHabitToDelete(null);
+      showSuccess(`Habit '${habitToDelete.name}' and its associated data deleted successfully!`);
+      setIsDeleteModalOpen(false);
+      setHabitToDelete(null);
+    }
+    setIsLoading(false);
   };
 
+  if (isLoading) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-lg text-gray-600">Loading habits...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8 text-red-600">
+        <p className="text-lg">{error}</p>
+        <Button onClick={fetchHabits} className="mt-4">Retry Loading Habits</Button>
+      </div>
+    );
+  }
 
   return (
     <div id="setup" className="tab-content text-center">
@@ -409,8 +478,9 @@ const HabitSetup: React.FC = () => {
             id="add-habit-button"
             className="px-6 py-3 bg-blue-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
             onClick={handleAddHabit}
+            disabled={isLoading}
           >
-            Add Habit
+            {isLoading ? "Adding..." : "Add Habit"}
           </button>
         </div>
       </div>

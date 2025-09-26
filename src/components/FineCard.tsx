@@ -7,21 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { showSuccess } from "@/utils/toast";
 import { formatDateRange, getDatesInPeriod } from "@/lib/date-utils";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
-
-// Interfaces from existing files (copied for self-containment of FineCard)
-interface Habit {
-  id: string;
-  name: string;
-  color: string;
-  trackingValues: string[];
-  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
-  fineAmount: number;
-  yearlyGoal: {
-    count: number;
-    contributingValues: string[];
-  };
-  createdAt: string;
-}
+import { Habit } from "@/types/habit"; // Import the centralized Habit interface
 
 interface DailyTrackingRecord {
   [date: string]: {

@@ -5,21 +5,8 @@ import { format, isAfter, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addW
 import { getWeeksInYear, getMonthsInYear } from "@/lib/date-utils";
 import FineCard from "@/components/FineCard";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
-
-// Interfaces from existing files (copied for self-containment of Fines page)
-interface Habit {
-  id: string;
-  name: string;
-  color: string;
-  trackingValues: string[];
-  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
-  fineAmount: number;
-  yearlyGoal: {
-    count: number;
-    contributingValues: string[];
-  };
-  createdAt: string;
-}
+import { Habit } from "@/types/habit"; // Import the centralized Habit interface
+import { supabase } from "@/lib/supabase"; // Import Supabase client
 
 interface DailyEntry {
   date: string;
@@ -41,34 +28,47 @@ const Fines: React.FC = () => {
   const [finesStatus, setFinesStatus] = React.useState<FinesPeriodData>({});
   const [lastEntryDate, setLastEntryDate] = React.useState<Date | null>(null);
 
-  // Load data from localStorage
+  // Load data from localStorage and Supabase
   React.useEffect(() => {
-    const storedHabits = localStorage.getItem('dailyJournalHabits');
-    if (storedHabits) {
-      setHabits(JSON.parse(storedHabits));
-    }
+    const loadData = async () => {
+      // Fetch habits from Supabase
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('*');
 
-    const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
-    if (storedDailyTracking) {
-      setDailyTracking(JSON.parse(storedDailyTracking));
-    }
-
-    const storedFinesStatus = localStorage.getItem('dailyJournalFinesStatus');
-    if (storedFinesStatus) {
-      setFinesStatus(JSON.parse(storedFinesStatus));
-    }
-
-    const storedEntries = localStorage.getItem("dailyJournalEntries");
-    if (storedEntries) {
-      const parsedEntries: DailyEntry[] = JSON.parse(storedEntries);
-      if (parsedEntries.length > 0) {
-        const latestDate = parsedEntries.reduce((maxDate, entry) => {
-          const entryDate = new Date(entry.date);
-          return entryDate > maxDate ? entryDate : maxDate;
-        }, new Date(0)); // Initialize with a very old date
-        setLastEntryDate(latestDate);
+      if (habitsError) {
+        console.error("Error fetching habits for Fines:", habitsError);
+        // Optionally show a toast error
+      } else {
+        setHabits(habitsData as Habit[]);
       }
-    }
+
+      // Load daily tracking from localStorage
+      const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
+      if (storedDailyTracking) {
+        setDailyTracking(JSON.parse(storedDailyTracking));
+      }
+
+      // Load fines status from localStorage
+      const storedFinesStatus = localStorage.getItem('dailyJournalFinesStatus');
+      if (storedFinesStatus) {
+        setFinesStatus(JSON.parse(storedFinesStatus));
+      }
+
+      // Load last entry date from localStorage
+      const storedEntries = localStorage.getItem("dailyJournalEntries");
+      if (storedEntries) {
+        const parsedEntries: DailyEntry[] = JSON.parse(storedEntries);
+        if (parsedEntries.length > 0) {
+          const latestDate = parsedEntries.reduce((maxDate, entry) => {
+            const entryDate = new Date(entry.date);
+            return entryDate > maxDate ? entryDate : maxDate;
+          }, new Date(0)); // Initialize with a very old date
+          setLastEntryDate(latestDate);
+        }
+      }
+    };
+    loadData();
   }, []);
 
   // Save fines status to localStorage whenever it changes

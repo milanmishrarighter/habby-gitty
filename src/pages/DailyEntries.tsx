@@ -7,26 +7,14 @@ import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal"; // Import the new modal
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button"; // Assuming you have a Button component
+import { Habit } from "@/types/habit"; // Import the centralized Habit interface
+import { supabase } from "@/lib/supabase"; // Import Supabase client
 
 interface DailyEntry {
   date: string;
   text: string;
   mood: string;
   timestamp: string;
-}
-
-interface Habit {
-  id: string;
-  name: string;
-  color: string;
-  trackingValues: string[];
-  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
-  fineAmount: number;
-  yearlyGoal: {
-    count: number;
-    contributingValues: string[];
-  };
-  createdAt: string;
 }
 
 // Data structures for localStorage
@@ -66,12 +54,22 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
   const [pendingEntry, setPendingEntry] = React.useState<DailyEntry | null>(null);
 
-  // Load habits on component mount
+  // Load habits from Supabase on component mount
   React.useEffect(() => {
-    const storedHabits = localStorage.getItem('dailyJournalHabits');
-    if (storedHabits) {
-      setHabits(JSON.parse(storedHabits));
-    }
+    const fetchHabits = async () => {
+      const { data, error } = await supabase
+        .from('habits')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error("Error fetching habits for DailyEntries:", error);
+        showError("Failed to load habits for tracking.");
+      } else {
+        setHabits(data as Habit[]);
+      }
+    };
+    fetchHabits();
   }, []);
 
   // Load daily tracking and yearly progress on component mount

@@ -4,20 +4,7 @@ import React from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { showSuccess, showError } from "@/utils/toast";
-
-interface Habit {
-  id: string;
-  name: string;
-  color: string;
-  trackingValues: string[];
-  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
-  fineAmount: number;
-  yearlyGoal: {
-    count: number;
-    contributingValues: string[];
-  };
-  createdAt: string;
-}
+import { Habit } from "@/types/habit"; // Import the centralized Habit interface
 
 interface FrequencyConditionInput {
   trackingValue: string;
@@ -136,7 +123,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
         contributingValues: contributingValues,
       },
-      // createdAt remains the same
+      // created_at remains the same
     };
 
     onSave(updatedHabit);

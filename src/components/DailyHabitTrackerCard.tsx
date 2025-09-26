@@ -2,17 +2,7 @@
 
 import React from 'react';
 import { showSuccess, showError } from '@/utils/toast';
-
-interface Habit {
-  id: string;
-  name: string;
-  color: string;
-  trackingValues: string[]; // All possible values to track
-  yearlyGoal: {
-    count: number; // Target count
-    contributingValues: string[]; // Subset of trackingValues that contribute to the yearly goal
-  };
-}
+import { Habit } from '@/types/habit'; // Import the centralized Habit interface
 
 interface DailyHabitTrackerCardProps {
   habit: Habit;
