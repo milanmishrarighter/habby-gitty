@@ -39,17 +39,20 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     let newSelectedValue: string | null;
     let newYearlyProgress = displayYearlyProgress;
 
+    // Safely access contributingValues
+    const contributingValues = habit.yearlyGoal?.contributingValues || [];
+
     if (selectedTrackingValue === value) {
       newSelectedValue = null;
-      if (habit.yearlyGoal.contributingValues.includes(value)) {
+      if (contributingValues.includes(value)) {
         newYearlyProgress = Math.max(0, newYearlyProgress - 1);
       }
     } else {
       newSelectedValue = value;
-      if (selectedTrackingValue && habit.yearlyGoal.contributingValues.includes(selectedTrackingValue)) {
+      if (selectedTrackingValue && contributingValues.includes(selectedTrackingValue)) {
         newYearlyProgress = Math.max(0, newYearlyProgress - 1);
       }
-      if (habit.yearlyGoal.contributingValues.includes(value)) {
+      if (contributingValues.includes(value)) {
         newYearlyProgress += 1;
       }
     }
@@ -66,7 +69,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
       <div className="flex items-center justify-between">
         <span className="text-gray-800 font-bold text-lg">{habit.name}</span>
         <div className="flex items-center gap-2">
-          {habit.yearlyGoal.count > 0 && (
+          {habit.yearlyGoal && habit.yearlyGoal.count > 0 && (
             <span className="text-sm font-semibold text-gray-600">
               {displayYearlyProgress} / {habit.yearlyGoal.count}
             </span>
@@ -75,7 +78,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
         </div>
       </div>
 
-      {habit.trackingValues && habit.trackingValues.length > 0 && (
+      {(habit.trackingValues && habit.trackingValues.length > 0) && (
         <div className="mt-2">
           <p className="font-medium mb-1 text-left">Track for today:</p>
           <div className="flex flex-wrap gap-2">

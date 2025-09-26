@@ -51,7 +51,8 @@ const FineCard: React.FC<FineCardProps> = ({
       const datesInPeriod = getDatesInPeriod(periodStart, periodEnd);
 
       habits.forEach(habit => {
-        habit.frequencyConditions.forEach(condition => {
+        // Defensive check for frequencyConditions
+        (habit.frequencyConditions || []).forEach(condition => {
           if (condition.frequency === periodType) {
             let actualCount = 0;
             datesInPeriod.forEach(date => {

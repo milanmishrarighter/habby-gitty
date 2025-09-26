@@ -18,7 +18,7 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
         <div className="w-6 h-6 rounded-full border-2 border-white shadow" style={{ backgroundColor: habit.color }}></div>
       </div>
 
-      {habit.trackingValues && habit.trackingValues.length > 0 && (
+      {(habit.trackingValues && habit.trackingValues.length > 0) && (
         <div className="flex flex-wrap gap-2 mt-2">
           {habit.trackingValues.map((value, index) => (
             <span key={index} className="bg-gray-200 text-gray-700 text-xs font-medium px-2.5 py-0.5 rounded-full">
@@ -28,7 +28,7 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
         </div>
       )}
 
-      {habit.frequencyConditions && habit.frequencyConditions.length > 0 && (
+      {(habit.frequencyConditions && habit.frequencyConditions.length > 0) && (
         <div className="mt-2 text-sm text-gray-600">
           <h4 className="font-semibold mb-1">Frequency Conditions:</h4>
           {habit.frequencyConditions.map((condition, index) => (
@@ -41,10 +41,10 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
         <p className="mt-2 text-sm text-red-600 font-bold">Fine: ₹{habit.fineAmount}</p>
       )}
 
-      {habit.yearlyGoal && habit.yearlyGoal.count > 0 && (
+      {(habit.yearlyGoal && habit.yearlyGoal.count > 0) && (
         <div className="mt-2 text-sm text-gray-600">
           <h4 className="font-semibold mb-1">Yearly Goal: {habit.yearlyGoal.count}</h4>
-          {habit.yearlyGoal.contributingValues && habit.yearlyGoal.contributingValues.length > 0 && (
+          {(habit.yearlyGoal.contributingValues && habit.yearlyGoal.contributingValues.length > 0) && (
             <>
               <p className="mt-1">Contributing Values:</p>
               <ul className="list-disc list-inside">

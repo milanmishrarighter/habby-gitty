@@ -38,16 +38,16 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
     if (initialHabit) {
       setHabitName(initialHabit.name);
       setHabitColor(initialHabit.color);
-      setTempTrackingValues(initialHabit.trackingValues);
+      setTempTrackingValues(initialHabit.trackingValues || []); // Defensive check
       setTrackingValueInput("");
       setFrequencyConditions(
-        initialHabit.frequencyConditions.length > 0
-          ? initialHabit.frequencyConditions.map(cond => ({ ...cond, count: cond.count === 0 ? "" : cond.count }))
+        (initialHabit.frequencyConditions || []).length > 0 // Defensive check
+          ? (initialHabit.frequencyConditions || []).map(cond => ({ ...cond, count: cond.count === 0 ? "" : cond.count }))
           : [{ trackingValue: "", frequency: "weekly", count: "" }]
       );
       setFineAmount(initialHabit.fineAmount === 0 ? "" : initialHabit.fineAmount);
-      setYearlyGoalCount(initialHabit.yearlyGoal.count === 0 ? "" : initialHabit.yearlyGoal.count);
-      setContributingValues(initialHabit.yearlyGoal.contributingValues);
+      setYearlyGoalCount(initialHabit.yearlyGoal?.count === 0 ? "" : initialHabit.yearlyGoal?.count || ""); // Defensive check
+      setContributingValues(initialHabit.yearlyGoal?.contributingValues || []); // Defensive check
     } else {
       // Reset form if no initial habit (e.g., closing modal)
       setHabitName("");
