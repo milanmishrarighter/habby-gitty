@@ -10,6 +10,7 @@ import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
 import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 
 interface EditDailyEntryModalProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
             console.error("Error fetching habits for EditDailyEntryModal:", error);
             showError("Failed to load habits.");
           } else {
-            setHabits(data as Habit[]);
+            setHabits((data || []).map(mapSupabaseHabitToHabit)); // Apply mapping
           }
         };
         fetchHabits();

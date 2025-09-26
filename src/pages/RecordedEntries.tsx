@@ -11,6 +11,7 @@ import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
 import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 
 const RecordedEntries: React.FC = () => {
   const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]);
@@ -46,7 +47,7 @@ const RecordedEntries: React.FC = () => {
       console.error("Error fetching habits for RecordedEntries:", habitsError);
       showError("Failed to load habits.");
     } else {
-      setHabits(habitsData as Habit[]);
+      setHabits((habitsData || []).map(mapSupabaseHabitToHabit)); // Apply mapping
     }
 
     // Fetch all daily habit tracking records
@@ -56,7 +57,6 @@ const RecordedEntries: React.FC = () => {
 
     if (trackingError) {
       console.error("Error fetching daily tracking:", trackingError);
-      showError("Failed to load daily habit tracking.");
       setDailyTracking({});
     } else {
       const newDailyTracking: { [date: string]: { [habitId: string]: string[] } } = {};

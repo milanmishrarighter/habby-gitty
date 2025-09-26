@@ -11,6 +11,7 @@ import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
 import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 
 interface DailyEntriesProps {
   setActiveTab: (tab: string) => void;
@@ -48,7 +49,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         console.error("Error fetching habits for DailyEntries:", error);
         showError("Failed to load habits for tracking.");
       } else {
-        setHabits(data as Habit[]);
+        setHabits((data || []).map(mapSupabaseHabitToHabit)); // Apply mapping
       }
     };
     fetchHabits();

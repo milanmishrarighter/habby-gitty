@@ -8,6 +8,7 @@ import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { supabase } from "@/lib/supabase";
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 
 interface FrequencyConditionInput {
   trackingValue: string;
@@ -53,7 +54,8 @@ const HabitSetup: React.FC = () => {
       setError("Failed to load habits. Please try again.");
       showError("Failed to load habits.");
     } else {
-      setHabits(data as Habit[]);
+      // Map the fetched data to the Habit interface
+      setHabits((data || []).map(mapSupabaseHabitToHabit));
     }
     setIsLoading(false);
   }, []);
@@ -124,14 +126,14 @@ const HabitSetup: React.FC = () => {
     const newHabitData = {
       name: habitName.trim(),
       color: habitColor,
-      tracking_values: tempTrackingValues,
+      tracking_values: tempTrackingValues, // Stored as snake_case
       frequency_conditions: frequencyConditions
         .filter(cond => cond.trackingValue && cond.count !== "")
-        .map(cond => ({ ...cond, count: Number(cond.count) as number })),
-      fine_amount: typeof fineAmount === 'number' ? fineAmount : 0,
+        .map(cond => ({ ...cond, count: Number(cond.count) as number })), // Stored as camelCase in JSONB
+      fine_amount: typeof fineAmount === 'number' ? fineAmount : 0, // Stored as snake_case
       yearly_goal: {
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
-        contributingValues: contributingValues,
+        contributingValues: contributingValues, // Stored as camelCase in JSONB
       },
     };
 
@@ -145,7 +147,7 @@ const HabitSetup: React.FC = () => {
       console.error("Error adding habit:", error);
       showError("Failed to add habit.");
     } else if (data && data.length > 0) {
-      setHabits((prev) => [data[0] as Habit, ...prev]);
+      setHabits((prev) => [mapSupabaseHabitToHabit(data[0]), ...prev]); // Map the returned data
       showSuccess("Habit added successfully!");
       resetForm();
     }
@@ -162,10 +164,10 @@ const HabitSetup: React.FC = () => {
     const updatedHabitData = {
       name,
       color,
-      tracking_values: trackingValues,
-      frequency_conditions: frequencyConditions,
-      fine_amount: fineAmount,
-      yearly_goal: yearlyGoal,
+      tracking_values: trackingValues, // Convert to snake_case
+      frequency_conditions: frequencyConditions, // Stored as camelCase in JSONB
+      fine_amount: fineAmount, // Convert to snake_case
+      yearly_goal: yearlyGoal, // Stored as camelCase in JSONB
       created_at,
     };
 
@@ -180,7 +182,8 @@ const HabitSetup: React.FC = () => {
       console.error("Error updating habit:", error);
       showError("Failed to update habit.");
     } else if (data && data.length > 0) {
-      setHabits((prev) => prev.map(h => h.id === id ? data[0] as Habit : h));
+      // Map the returned data back to camelCase for local state
+      setHabits((prev) => prev.map(h => h.id === id ? mapSupabaseHabitToHabit(data[0]) : h));
     }
     setIsLoading(false);
   };

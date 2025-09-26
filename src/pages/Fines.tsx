@@ -9,6 +9,7 @@ import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
 import { DailyTrackingRecord as SupabaseDailyTrackingRecord } from "@/types/tracking"; // Import Supabase type
 import { supabase } from "@/lib/supabase";
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 
 interface DailyTrackingRecord {
   [date: string]: {
@@ -34,7 +35,7 @@ const Fines: React.FC = () => {
       if (habitsError) {
         console.error("Error fetching habits for Fines:", habitsError);
       } else {
-        setHabits(habitsData as Habit[]);
+        setHabits((habitsData || []).map(mapSupabaseHabitToHabit)); // Apply mapping
       }
 
       // Fetch all daily habit tracking records
