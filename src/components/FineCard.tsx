@@ -116,7 +116,11 @@ const FineCard: React.FC<FineCardProps> = ({
       </CardHeader>
       <CardContent className="flex-grow">
         {finesForPeriod.length === 0 ? (
-          <p className="text-gray-600 italic">Congratulations! No fines were collected for this {periodType.slice(0, -2)}.</p>
+          isCurrentPeriod ? (
+            <p className="text-gray-600 italic">Fines are being calculated for this {periodType.slice(0, -2)}.</p>
+          ) : (
+            <p className="text-gray-600 italic">Congratulations! No fines were collected for this {periodType.slice(0, -2)}.</p>
+          )
         ) : (
           <div className="space-y-3">
             {finesForPeriod.map((fine, index) => (
