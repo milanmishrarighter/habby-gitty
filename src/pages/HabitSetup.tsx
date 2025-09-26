@@ -3,21 +3,22 @@
 import React from "react";
 import HabitCard from "@/components/HabitCard";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
+import EditHabitModal from "@/components/EditHabitModal"; // Import the new modal
 import { showSuccess, showError } from "@/utils/toast";
-import { Button } from "@/components/ui/button"; // Assuming you have a Button component
+import { Button } from "@/components/ui/button";
 
 interface Habit {
-  id: string; // Added unique ID
+  id: string;
   name: string;
   color: string;
   trackingValues: string[];
   frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
   fineAmount: number;
   yearlyGoal: {
-    count: number; // This is the TARGET count
+    count: number;
     contributingValues: string[];
   };
-  createdAt: string; // Storing as string for simplicity with localStorage
+  createdAt: string;
 }
 
 interface FrequencyConditionInput {
@@ -40,7 +41,7 @@ interface YearlyProgressRecord {
 
 interface FinesPeriodData {
   [periodKey: string]: {
-    [habitId: string]: any[]; // Simplified for cleanup logic
+    [habitId: string]: any[];
   };
 }
 
@@ -59,9 +60,11 @@ const HabitSetup: React.FC = () => {
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
-  const [editingHabitId, setEditingHabitId] = React.useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [habitToDelete, setHabitToDelete] = React.useState<{ id: string; name: string } | null>(null);
+
+  const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
+  const [habitToEdit, setHabitToEdit] = React.useState<Habit | null>(null);
 
   // Load habits from localStorage on initial mount
   React.useEffect(() => {
@@ -85,7 +88,6 @@ const HabitSetup: React.FC = () => {
     setFineAmount("");
     setYearlyGoalCount("");
     setContributingValues([]);
-    setEditingHabitId(null);
   };
 
   const addTrackingValue = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -100,7 +102,7 @@ const HabitSetup: React.FC = () => {
 
   const removeTrackingValue = (valueToRemove: string) => {
     setTempTrackingValues((prev) => prev.filter((value) => value !== valueToRemove));
-    setContributingValues((prev) => prev.filter((value) => value !== valueToRemove)); // Also remove from contributing if it was there
+    setContributingValues((prev) => prev.filter((value) => value !== valueToRemove));
   };
 
   const handleFrequencyChange = (index: number, field: keyof FrequencyConditionInput, value: string | number) => {
@@ -129,14 +131,14 @@ const HabitSetup: React.FC = () => {
     );
   };
 
-  const handleSaveHabit = () => {
+  const handleAddHabit = () => {
     if (!habitName.trim()) {
       showError("Habit name cannot be empty.");
       return;
     }
 
     const newHabit: Habit = {
-      id: editingHabitId || crypto.randomUUID(), // Use existing ID if editing, otherwise generate new
+      id: crypto.randomUUID(),
       name: habitName.trim(),
       color: habitColor,
       trackingValues: tempTrackingValues,
@@ -148,34 +150,22 @@ const HabitSetup: React.FC = () => {
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
         contributingValues: contributingValues,
       },
-      createdAt: editingHabitId ? habits.find(h => h.id === editingHabitId)?.createdAt || new Date().toISOString() : new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     };
 
-    if (editingHabitId) {
-      setHabits((prev) => prev.map(h => h.id === editingHabitId ? newHabit : h));
-      showSuccess("Habit updated successfully!");
-    } else {
-      setHabits((prev) => [...prev, newHabit]);
-      showSuccess("Habit added successfully!");
-    }
-
+    setHabits((prev) => [...prev, newHabit]);
+    showSuccess("Habit added successfully!");
     resetForm();
   };
 
-  const handleEditHabit = (habit: Habit) => {
-    setEditingHabitId(habit.id);
-    setHabitName(habit.name);
-    setHabitColor(habit.color);
-    setTempTrackingValues(habit.trackingValues);
-    setTrackingValueInput(""); // Clear input field
-    setFrequencyConditions(
-      habit.frequencyConditions.length > 0
-        ? habit.frequencyConditions.map(cond => ({ ...cond, count: cond.count === 0 ? "" : cond.count }))
-        : [{ trackingValue: "", frequency: "weekly", count: "" }]
-    );
-    setFineAmount(habit.fineAmount === 0 ? "" : habit.fineAmount);
-    setYearlyGoalCount(habit.yearlyGoal.count === 0 ? "" : habit.yearlyGoal.count);
-    setContributingValues(habit.yearlyGoal.contributingValues);
+  const handleEditHabitClick = (habit: Habit) => {
+    setHabitToEdit(habit);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEditedHabit = (updatedHabit: Habit) => {
+    setHabits((prev) => prev.map(h => h.id === updatedHabit.id ? updatedHabit : h));
+    // Success toast is handled inside the modal
   };
 
   const handleDeleteClick = (id: string, name: string) => {
@@ -259,7 +249,7 @@ const HabitSetup: React.FC = () => {
 
   return (
     <div id="setup" className="tab-content text-center">
-      <h2 className="text-2xl font-bold text-gray-800 mb-4">{editingHabitId ? "Edit Habit" : "Habit Setup"}</h2>
+      <h2 className="text-2xl font-bold text-gray-800 mb-4">Habit Setup</h2>
       <p className="text-gray-600 mb-6">Create and assign a color to your habits to track them easily.</p>
       <div className="flex flex-col items-center justify-center space-y-4">
         {/* Habit Name Input */}
@@ -343,7 +333,7 @@ const HabitSetup: React.FC = () => {
                   value={condition.count}
                   onChange={(e) => handleFrequencyChange(index, "count", e.target.value === "" ? "" : Number(e.target.value))}
                 />
-                {frequencyConditions.length > 1 && ( // Only show remove button if there's more than one condition
+                {frequencyConditions.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeFrequencyCondition(index)}
@@ -413,23 +403,14 @@ const HabitSetup: React.FC = () => {
           </div>
         </div>
 
-        {/* Add/Update Habit Button */}
-        <div className="flex gap-4">
-          {editingHabitId && (
-            <Button
-              variant="outline"
-              onClick={resetForm}
-              className="px-6 py-3 font-bold text-lg rounded-full shadow-lg transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-gray-500 focus:ring-opacity-50"
-            >
-              Cancel Edit
-            </Button>
-          )}
+        {/* Add Habit Button */}
+        <div className="flex justify-center mt-4">
           <button
             id="add-habit-button"
             className="px-6 py-3 bg-blue-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
-            onClick={handleSaveHabit}
+            onClick={handleAddHabit}
           >
-            {editingHabitId ? "Update Habit" : "Add Habit"}
+            Add Habit
           </button>
         </div>
       </div>
@@ -448,7 +429,7 @@ const HabitSetup: React.FC = () => {
                 <HabitCard
                   key={habit.id}
                   habit={habit}
-                  onEdit={handleEditHabit}
+                  onEdit={handleEditHabitClick}
                   onDelete={handleDeleteClick}
                 />
               ))}
@@ -462,6 +443,13 @@ const HabitSetup: React.FC = () => {
         onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={confirmDeleteHabit}
         itemToDeleteName={habitToDelete ? `the habit "${habitToDelete.name}"` : "this habit"}
+      />
+
+      <EditHabitModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        initialHabit={habitToEdit}
+        onSave={handleSaveEditedHabit}
       />
     </div>
   );
