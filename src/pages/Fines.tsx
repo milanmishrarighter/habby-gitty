@@ -78,23 +78,24 @@ const Fines: React.FC = () => {
 
   const handleUpdateFineStatus = (periodKey: string, updatedFine: FineDetail) => {
     setFinesStatus(prev => {
-      const newFinesStatus = { ...prev };
-      if (!newFinesStatus[periodKey]) {
-        newFinesStatus[periodKey] = {};
-      }
-      if (!newFinesStatus[periodKey][updatedFine.habitId]) {
-        newFinesStatus[periodKey][updatedFine.habitId] = [];
-      }
+      const newFinesStatus = { ...prev }; // Shallow copy of the top-level object
 
-      const fineIndex = newFinesStatus[periodKey][updatedFine.habitId].findIndex(
+      // Ensure a new object for the periodKey if it's being modified
+      const periodData = { ...(newFinesStatus[periodKey] || {}) };
+      newFinesStatus[periodKey] = periodData;
+
+      // Ensure a new array for the habitId if it's being modified
+      const habitFines = [...(periodData[updatedFine.habitId] || [])]; // Create a new array reference
+      periodData[updatedFine.habitId] = habitFines;
+
+      const fineIndex = habitFines.findIndex(
         f => f.trackingValue === updatedFine.trackingValue
       );
 
       if (fineIndex > -1) {
-        newFinesStatus[periodKey][updatedFine.habitId][fineIndex] = updatedFine;
+        habitFines[fineIndex] = updatedFine; // Update the item in the new array
       } else {
-        // If it's a new fine being marked for the first time, add it.
-        newFinesStatus[periodKey][updatedFine.habitId].push(updatedFine);
+        habitFines.push(updatedFine); // Add to the new array
       }
 
       return newFinesStatus;
