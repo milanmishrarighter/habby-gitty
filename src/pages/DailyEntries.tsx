@@ -3,7 +3,8 @@
 import React from "react";
 import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
-import DeleteConfirmationModal from "@/components/DeleteConfirmationModal"; // Reusing for overwrite confirmation
+import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
+import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal"; // Import the new modal
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button"; // Assuming you have a Button component
 
@@ -261,11 +262,11 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         </button>
       </div>
 
-      <DeleteConfirmationModal
+      <OverwriteConfirmationModal
         isOpen={showOverwriteConfirmModal}
         onClose={() => setShowOverwriteConfirmModal(false)}
         onConfirm={handleConfirmOverwrite}
-        itemToDeleteName={`the existing entry for ${entryDate}`}
+        itemToOverwriteName={`the entry for ${entryDate}`}
       />
     </div>
   );
