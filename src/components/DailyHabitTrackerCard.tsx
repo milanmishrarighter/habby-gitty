@@ -2,14 +2,14 @@
 
 import React from 'react';
 import { showSuccess, showError } from '@/utils/toast';
-import { Habit } from '@/types/habit'; // Import the centralized Habit interface
+import { Habit } from '@/types/habit';
 
 interface DailyHabitTrackerCardProps {
   habit: Habit;
   entryDate: string; // The date for which we are tracking
-  onUpdateTracking: (habitId: string, date: string, trackedValues: string[], yearlyProgress: number) => void;
+  onUpdateTracking: (habitId: string, date: string, trackedValues: string[], yearlyProgress: number) => Promise<void>; // Now returns a Promise
   currentYearlyProgress: number;
-  initialTrackedValue: string | null; // Changed to single string or null
+  initialTrackedValue: string | null;
 }
 
 const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
@@ -30,7 +30,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     setDisplayYearlyProgress(currentYearlyProgress);
   }, [currentYearlyProgress]);
 
-  const handleValueClick = (value: string) => {
+  const handleValueClick = async (value: string) => { // Made async
     if (!entryDate) {
       showError("Please select a date first to track habits.");
       return;
@@ -39,21 +39,16 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     let newSelectedValue: string | null;
     let newYearlyProgress = displayYearlyProgress;
 
-    // Check if the clicked value is already selected (deselection)
     if (selectedTrackingValue === value) {
       newSelectedValue = null;
-      // If the deselected value was a contributing value, decrement progress
       if (habit.yearlyGoal.contributingValues.includes(value)) {
         newYearlyProgress = Math.max(0, newYearlyProgress - 1);
       }
     } else {
-      // A new value is being selected
       newSelectedValue = value;
-      // If there was a previously selected value and it was contributing, decrement its effect
       if (selectedTrackingValue && habit.yearlyGoal.contributingValues.includes(selectedTrackingValue)) {
         newYearlyProgress = Math.max(0, newYearlyProgress - 1);
       }
-      // If the newly selected value is a contributing value, increment its effect
       if (habit.yearlyGoal.contributingValues.includes(value)) {
         newYearlyProgress += 1;
       }
@@ -62,8 +57,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     setSelectedTrackingValue(newSelectedValue);
     setDisplayYearlyProgress(newYearlyProgress);
 
-    // Pass an array with one item or an empty array to onUpdateTracking
-    onUpdateTracking(habit.id, entryDate, newSelectedValue ? [newSelectedValue] : [], newYearlyProgress);
+    await onUpdateTracking(habit.id, entryDate, newSelectedValue ? [newSelectedValue] : [], newYearlyProgress);
     showSuccess(`Habit '${habit.name}' updated for ${entryDate}!`);
   };
 

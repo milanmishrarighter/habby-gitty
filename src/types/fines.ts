@@ -1,4 +1,5 @@
 export interface FineDetail {
+  id: string; // Unique ID from Supabase
   habitId: string;
   habitName: string;
   fineAmount: number;
@@ -7,6 +8,7 @@ export interface FineDetail {
   trackingValue: string; // The specific tracking value that caused the fine
   conditionCount: number; // The count from the frequency condition
   actualCount: number; // The actual count observed
+  created_at: string; // Timestamp from Supabase
 }
 
 export interface FinesPeriodData {

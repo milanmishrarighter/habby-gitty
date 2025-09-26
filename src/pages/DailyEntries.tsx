@@ -8,21 +8,9 @@ import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal"
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
-import { DailyEntry } from "@/types/dailyEntry"; // Import the new DailyEntry interface
+import { DailyEntry } from "@/types/dailyEntry";
+import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
-
-// Data structures for localStorage (still used for tracking and progress)
-interface DailyTrackingRecord {
-  [date: string]: {
-    [habitId: string]: string[];
-  };
-}
-
-interface YearlyProgressRecord {
-  [year: string]: {
-    [habitId: string]: number;
-  };
-}
 
 interface DailyEntriesProps {
   setActiveTab: (tab: string) => void;
@@ -41,12 +29,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [journalText, setJournalText] = React.useState("");
   const [moodEmoji, setMoodEmoji] = React.useState("😊");
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
-  const [yearlyProgress, setYearlyProgress] = React.useState<YearlyProgressRecord>({});
-  const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null); // To store Supabase ID
+  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: string[] } }>({});
+  const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
+  const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null);
 
   const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
-  const [pendingEntry, setPendingEntry] = React.useState<Omit<DailyEntry, 'id'> | null>(null); // Omit id for pending
+  const [pendingEntry, setPendingEntry] = React.useState<Omit<DailyEntry, 'id'> | null>(null);
 
   // Load habits from Supabase on component mount
   React.useEffect(() => {
@@ -66,60 +54,79 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     fetchHabits();
   }, []);
 
-  // Load daily tracking and yearly progress on component mount
+  // Effect to load journal entry, daily tracking, and yearly progress for selected date from Supabase
   React.useEffect(() => {
-    const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
-    if (storedDailyTracking) {
-      setDailyTracking(JSON.parse(storedDailyTracking));
-    }
-    const storedYearlyProgress = localStorage.getItem('yearlyHabitProgress');
-    if (storedYearlyProgress) {
-      setYearlyProgress(JSON.parse(storedYearlyProgress));
-    }
-  }, []);
-
-  // Save daily tracking and yearly progress whenever they change
-  React.useEffect(() => {
-    localStorage.setItem('dailyHabitTracking', JSON.stringify(dailyTracking));
-  }, [dailyTracking]);
-
-  React.useEffect(() => {
-    localStorage.setItem('yearlyHabitProgress', JSON.stringify(yearlyProgress));
-  }, [yearlyProgress]);
-
-  // Effect to load journal entry for selected date from Supabase
-  React.useEffect(() => {
-    const fetchDailyEntry = async () => {
+    const fetchDataForDate = async () => {
       if (!entryDate) {
         setJournalText("");
         setMoodEmoji("😊");
         setCurrentEntryId(null);
+        setDailyTracking({});
+        setYearlyProgress({});
         return;
       }
 
-      const { data, error } = await supabase
+      // Fetch daily entry
+      const { data: entryData, error: entryError } = await supabase
         .from('daily_entries')
         .select('*')
         .eq('date', entryDate)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 means "no rows found"
-        console.error("Error fetching daily entry:", error);
+      if (entryError && entryError.code !== 'PGRST116') {
+        console.error("Error fetching daily entry:", entryError);
         showError("Failed to load daily entry.");
         setJournalText("");
         setMoodEmoji("😊");
         setCurrentEntryId(null);
-      } else if (data) {
-        setJournalText(data.text);
-        setMoodEmoji(data.mood);
-        setCurrentEntryId(data.id);
+      } else if (entryData) {
+        setJournalText(entryData.text);
+        setMoodEmoji(entryData.mood);
+        setCurrentEntryId(entryData.id);
       } else {
         setJournalText("");
         setMoodEmoji("😊");
         setCurrentEntryId(null);
       }
+
+      // Fetch daily habit tracking for the selected date
+      const { data: trackingData, error: trackingError } = await supabase
+        .from('daily_habit_tracking')
+        .select('*')
+        .eq('date', entryDate);
+
+      if (trackingError) {
+        console.error("Error fetching daily tracking:", trackingError);
+        showError("Failed to load daily habit tracking.");
+        setDailyTracking({});
+      } else {
+        const newDailyTracking: { [date: string]: { [habitId: string]: string[] } } = { [entryDate]: {} };
+        trackingData.forEach(record => {
+          newDailyTracking[entryDate][record.habit_id] = record.tracked_values;
+        });
+        setDailyTracking(newDailyTracking);
+      }
+
+      // Fetch yearly progress for the current year
+      const currentYear = new Date(entryDate).getFullYear().toString();
+      const { data: yearlyProgressData, error: yearlyProgressError } = await supabase
+        .from('yearly_habit_progress')
+        .select('*')
+        .eq('year', currentYear);
+
+      if (yearlyProgressError) {
+        console.error("Error fetching yearly progress:", yearlyProgressError);
+        showError("Failed to load yearly habit progress.");
+        setYearlyProgress({});
+      } else {
+        const newYearlyProgress: { [year: string]: { [habitId: string]: number } } = { [currentYear]: {} };
+        yearlyProgressData.forEach(record => {
+          newYearlyProgress[currentYear][record.habit_id] = record.progress_count;
+        });
+        setYearlyProgress(newYearlyProgress);
+      }
     };
-    fetchDailyEntry();
+    fetchDataForDate();
   }, [entryDate]);
 
 
@@ -137,7 +144,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     };
 
     if (currentEntryId && !overwrite) {
-      // Entry exists, and overwrite not confirmed, show modal
       setPendingEntry(entryData);
       setShowOverwriteConfirmModal(true);
       return;
@@ -145,21 +151,19 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
     let error = null;
     if (currentEntryId && overwrite) {
-      // Update existing entry
       const { error: updateError } = await supabase
         .from('daily_entries')
         .update(entryData)
         .eq('id', currentEntryId);
       error = updateError;
     } else {
-      // Insert new entry
       const { data, error: insertError } = await supabase
         .from('daily_entries')
         .insert([entryData])
         .select();
       error = insertError;
       if (data && data.length > 0) {
-        setCurrentEntryId(data[0].id); // Set the new ID
+        setCurrentEntryId(data[0].id);
       }
     }
 
@@ -174,26 +178,58 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   };
 
   const handleConfirmOverwrite = () => {
-    saveEntry(true); // Proceed with saving, indicating overwrite is confirmed
+    saveEntry(true);
   };
 
-  const handleUpdateTracking = (habitId: string, date: string, trackedValuesForDay: string[], newYearlyProgress: number) => {
-    setDailyTracking(prev => ({
-      ...prev,
-      [date]: {
-        ...(prev[date] || {}),
-        [habitId]: trackedValuesForDay,
-      },
-    }));
+  const handleUpdateTracking = async (habitId: string, date: string, trackedValuesForDay: string[], newYearlyProgress: number) => {
+    // Update daily tracking in Supabase
+    const dailyTrackingRecord = {
+      date: date,
+      habit_id: habitId,
+      tracked_values: trackedValuesForDay,
+    };
 
+    const { error: dailyTrackingError } = await supabase
+      .from('daily_habit_tracking')
+      .upsert(dailyTrackingRecord, { onConflict: 'date,habit_id' });
+
+    if (dailyTrackingError) {
+      console.error("Error updating daily tracking:", dailyTrackingError);
+      showError("Failed to update daily habit tracking.");
+    } else {
+      setDailyTracking(prev => ({
+        ...prev,
+        [date]: {
+          ...(prev[date] || {}),
+          [habitId]: trackedValuesForDay,
+        },
+      }));
+    }
+
+    // Update yearly progress in Supabase
     const currentYear = new Date(date).getFullYear().toString();
-    setYearlyProgress(prev => ({
-      ...prev,
-      [currentYear]: {
-        ...(prev[currentYear] || {}),
-        [habitId]: newYearlyProgress,
-      },
-    }));
+    const yearlyProgressRecord = {
+      year: currentYear,
+      habit_id: habitId,
+      progress_count: newYearlyProgress,
+    };
+
+    const { error: yearlyProgressError } = await supabase
+      .from('yearly_habit_progress')
+      .upsert(yearlyProgressRecord, { onConflict: 'year,habit_id' });
+
+    if (yearlyProgressError) {
+      console.error("Error updating yearly progress:", yearlyProgressError);
+      showError("Failed to update yearly habit progress.");
+    } else {
+      setYearlyProgress(prev => ({
+        ...prev,
+        [currentYear]: {
+          ...(prev[currentYear] || {}),
+          [habitId]: newYearlyProgress,
+        },
+      }));
+    }
   };
 
   const handleSetupHabitClick = () => {
@@ -252,7 +288,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             {habits.map((habit) => {
               const currentYear = entryDate ? new Date(entryDate).getFullYear().toString() : new Date().getFullYear().toString();
               const currentYearlyProgress = yearlyProgress[currentYear]?.[habit.id] || 0;
-              // Extract the single tracked value for the day, or null if none
               const initialTrackedValue = entryDate && dailyTracking[entryDate]?.[habit.id]?.length > 0
                 ? dailyTracking[entryDate][habit.id][0]
                 : null;
@@ -264,7 +299,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   entryDate={entryDate}
                   onUpdateTracking={handleUpdateTracking}
                   currentYearlyProgress={currentYearlyProgress}
-                  initialTrackedValue={initialTrackedValue} // Pass single value
+                  initialTrackedValue={initialTrackedValue}
                 />
               );
             })}

@@ -6,7 +6,8 @@ import { getWeeksInYear, getMonthsInYear } from "@/lib/date-utils";
 import FineCard from "@/components/FineCard";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
 import { Habit } from "@/types/habit";
-import { DailyEntry } from "@/types/dailyEntry"; // Import DailyEntry
+import { DailyEntry } from "@/types/dailyEntry";
+import { DailyTrackingRecord as SupabaseDailyTrackingRecord } from "@/types/tracking"; // Import Supabase type
 import { supabase } from "@/lib/supabase";
 
 interface DailyTrackingRecord {
@@ -22,7 +23,7 @@ const Fines: React.FC = () => {
   const [finesStatus, setFinesStatus] = React.useState<FinesPeriodData>({});
   const [lastEntryDate, setLastEntryDate] = React.useState<Date | null>(null);
 
-  // Load data from localStorage and Supabase
+  // Load data from Supabase
   React.useEffect(() => {
     const loadData = async () => {
       // Fetch habits from Supabase
@@ -32,21 +33,60 @@ const Fines: React.FC = () => {
 
       if (habitsError) {
         console.error("Error fetching habits for Fines:", habitsError);
-        // Optionally show a toast error
       } else {
         setHabits(habitsData as Habit[]);
       }
 
-      // Load daily tracking from localStorage
-      const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
-      if (storedDailyTracking) {
-        setDailyTracking(JSON.parse(storedDailyTracking));
+      // Fetch all daily habit tracking records
+      const { data: trackingData, error: trackingError } = await supabase
+        .from('daily_habit_tracking')
+        .select('*');
+
+      if (trackingError) {
+        console.error("Error fetching daily tracking:", trackingError);
+        setDailyTracking({});
+      } else {
+        const newDailyTracking: DailyTrackingRecord = {};
+        trackingData.forEach(record => {
+          if (!newDailyTracking[record.date]) {
+            newDailyTracking[record.date] = {};
+          }
+          newDailyTracking[record.date][record.habit_id] = record.tracked_values;
+        });
+        setDailyTracking(newDailyTracking);
       }
 
-      // Load fines status from localStorage
-      const storedFinesStatus = localStorage.getItem('dailyJournalFinesStatus');
-      if (storedFinesStatus) {
-        setFinesStatus(JSON.parse(storedFinesStatus));
+      // Fetch fines status from Supabase
+      const { data: finesData, error: finesError } = await supabase
+        .from('fines_status')
+        .select('*');
+
+      if (finesError) {
+        console.error("Error fetching fines status:", finesError);
+        setFinesStatus({});
+      } else {
+        const newFinesStatus: FinesPeriodData = {};
+        finesData.forEach(fine => {
+          if (!newFinesStatus[fine.period_key]) {
+            newFinesStatus[fine.period_key] = {};
+          }
+          if (!newFinesStatus[fine.period_key][fine.habit_id]) {
+            newFinesStatus[fine.period_key][fine.habit_id] = [];
+          }
+          newFinesStatus[fine.period_key][fine.habit_id].push({
+            id: fine.id,
+            habitId: fine.habit_id,
+            habitName: habitsData?.find(h => h.id === fine.habit_id)?.name || 'Unknown Habit',
+            fineAmount: fine.fine_amount,
+            cause: fine.cause,
+            status: fine.status as 'paid' | 'unpaid',
+            trackingValue: fine.tracking_value,
+            conditionCount: fine.condition_count,
+            actualCount: fine.actual_count,
+            created_at: fine.created_at,
+          });
+        });
+        setFinesStatus(newFinesStatus);
       }
 
       // Fetch last entry date from Supabase
@@ -57,7 +97,7 @@ const Fines: React.FC = () => {
         .limit(1)
         .single();
 
-      if (latestEntryError && latestEntryError.code !== 'PGRST116') { // PGRST116 means "no rows found"
+      if (latestEntryError && latestEntryError.code !== 'PGRST116') {
         console.error("Error fetching latest daily entry date:", latestEntryError);
       } else if (latestEntry) {
         setLastEntryDate(new Date(latestEntry.date));
@@ -66,35 +106,51 @@ const Fines: React.FC = () => {
       }
     };
     loadData();
-  }, []);
+  }, []); // Empty dependency array to run once on mount
 
-  // Save fines status to localStorage whenever it changes
-  React.useEffect(() => {
-    localStorage.setItem('dailyJournalFinesStatus', JSON.stringify(finesStatus));
-  }, [finesStatus]);
+  const handleUpdateFineStatus = async (periodKey: string, updatedFine: FineDetail) => {
+    const fineData = {
+      period_key: periodKey,
+      habit_id: updatedFine.habitId,
+      fine_amount: updatedFine.fineAmount,
+      cause: updatedFine.cause,
+      status: updatedFine.status,
+      tracking_value: updatedFine.trackingValue,
+      condition_count: updatedFine.conditionCount,
+      actual_count: updatedFine.actualCount,
+    };
 
-  const handleUpdateFineStatus = (periodKey: string, updatedFine: FineDetail) => {
-    setFinesStatus(prev => {
-      const newFinesStatus = { ...prev };
+    const { error } = await supabase
+      .from('fines_status')
+      .upsert(fineData, { onConflict: 'period_key,habit_id,tracking_value' });
 
-      const periodData = { ...(newFinesStatus[periodKey] || {}) };
-      newFinesStatus[periodKey] = periodData;
+    if (error) {
+      console.error("Error updating fine status:", error);
+      showError("Failed to update fine status.");
+    } else {
+      setFinesStatus(prev => {
+        const newFinesStatus = { ...prev };
+        if (!newFinesStatus[periodKey]) {
+          newFinesStatus[periodKey] = {};
+        }
+        if (!newFinesStatus[periodKey][updatedFine.habitId]) {
+          newFinesStatus[periodKey][updatedFine.habitId] = [];
+        }
 
-      const habitFines = [...(periodData[updatedFine.habitId] || [])];
-      periodData[updatedFine.habitId] = habitFines;
+        const habitFines = newFinesStatus[periodKey][updatedFine.habitId];
+        const fineIndex = habitFines.findIndex(
+          f => f.trackingValue === updatedFine.trackingValue
+        );
 
-      const fineIndex = habitFines.findIndex(
-        f => f.trackingValue === updatedFine.trackingValue
-      );
-
-      if (fineIndex > -1) {
-        habitFines[fineIndex] = updatedFine;
-      } else {
-        habitFines.push(updatedFine);
-      }
-
-      return newFinesStatus;
-    });
+        if (fineIndex > -1) {
+          habitFines[fineIndex] = updatedFine;
+        } else {
+          habitFines.push(updatedFine);
+        }
+        return newFinesStatus;
+      });
+      showSuccess(`Fine for '${updatedFine.habitName}' (${updatedFine.trackingValue}) marked as ${updatedFine.status}.`);
+    }
   };
 
   const currentYear = new Date().getFullYear();

@@ -8,23 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from 'date-fns';
 import { Habit } from "@/types/habit";
-import { DailyEntry } from "@/types/dailyEntry"; // Import the new DailyEntry interface
+import { DailyEntry } from "@/types/dailyEntry";
+import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
-
-interface DailyTrackingRecord {
-  [date: string]: {
-    [habitId: string]: string[];
-  };
-}
 
 const RecordedEntries: React.FC = () => {
   const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
-  const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null); // Store ID and date
+  const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null);
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
+  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: string[] } }>({});
 
   // Function to load entries, habits, and daily tracking
   const loadAllData = React.useCallback(async () => {
@@ -32,7 +27,7 @@ const RecordedEntries: React.FC = () => {
     const { data: entriesData, error: entriesError } = await supabase
       .from('daily_entries')
       .select('*')
-      .order('date', { ascending: false }); // Order by date descending
+      .order('date', { ascending: false });
 
     if (entriesError) {
       console.error("Error fetching daily entries:", entriesError);
@@ -54,11 +49,24 @@ const RecordedEntries: React.FC = () => {
       setHabits(habitsData as Habit[]);
     }
 
-    const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
-    if (storedDailyTracking) {
-      setDailyTracking(JSON.parse(storedDailyTracking));
-    } else {
+    // Fetch all daily habit tracking records
+    const { data: trackingData, error: trackingError } = await supabase
+      .from('daily_habit_tracking')
+      .select('*');
+
+    if (trackingError) {
+      console.error("Error fetching daily tracking:", trackingError);
+      showError("Failed to load daily habit tracking.");
       setDailyTracking({});
+    } else {
+      const newDailyTracking: { [date: string]: { [habitId: string]: string[] } } = {};
+      trackingData.forEach(record => {
+        if (!newDailyTracking[record.date]) {
+          newDailyTracking[record.date] = {};
+        }
+        newDailyTracking[record.date][record.habit_id] = record.tracked_values;
+      });
+      setDailyTracking(newDailyTracking);
     }
   }, []);
 
@@ -77,28 +85,43 @@ const RecordedEntries: React.FC = () => {
 
     const { id: idToDelete, date: dateToDelete } = entryToDelete;
 
-    const { error } = await supabase
+    // Delete daily entry from Supabase
+    const { error: entryDeleteError } = await supabase
       .from('daily_entries')
       .delete()
       .eq('id', idToDelete);
 
-    if (error) {
-      console.error("Error deleting daily entry:", error);
+    if (entryDeleteError) {
+      console.error("Error deleting daily entry:", entryDeleteError);
       showError("Failed to delete daily entry.");
-    } else {
-      // Remove entry from local state
-      setDailyEntries(prev => prev.filter(entry => entry.id !== idToDelete));
-
-      // Remove daily tracking for this date (still in localStorage for now)
-      const updatedDailyTracking = { ...dailyTracking };
-      delete updatedDailyTracking[dateToDelete];
-      localStorage.setItem('dailyHabitTracking', JSON.stringify(updatedDailyTracking));
-      setDailyTracking(updatedDailyTracking);
-
-      showSuccess("Entry and associated habit tracking deleted successfully!");
-      setEntryToDelete(null);
-      setIsDeleteModalOpen(false);
+      return;
     }
+
+    // Delete associated daily habit tracking from Supabase
+    const { error: trackingDeleteError } = await supabase
+      .from('daily_habit_tracking')
+      .delete()
+      .eq('date', dateToDelete);
+
+    if (trackingDeleteError) {
+      console.error("Error deleting associated daily tracking:", trackingDeleteError);
+      showError("Failed to delete associated habit tracking.");
+      // Continue with other deletions even if this fails
+    }
+
+    // Remove entry from local state
+    setDailyEntries(prev => prev.filter(entry => entry.id !== idToDelete));
+
+    // Remove daily tracking for this date from local state
+    setDailyTracking(prev => {
+      const updatedDailyTracking = { ...prev };
+      delete updatedDailyTracking[dateToDelete];
+      return updatedDailyTracking;
+    });
+
+    showSuccess("Entry and associated habit tracking deleted successfully!");
+    setEntryToDelete(null);
+    setIsDeleteModalOpen(false);
   };
 
   const handleEditEntry = (entry: DailyEntry) => {

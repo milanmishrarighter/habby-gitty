@@ -7,98 +7,137 @@ import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
 import { showSuccess, showError } from "@/utils/toast";
 import { Habit } from "@/types/habit";
-import { DailyEntry } from "@/types/dailyEntry"; // Import the new DailyEntry interface
+import { DailyEntry } from "@/types/dailyEntry";
+import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
-
-interface DailyTrackingRecord {
-  [date: string]: {
-    [habitId: string]: string[];
-  };
-}
-
-interface YearlyProgressRecord {
-  [year: string]: {
-    [habitId: string]: number;
-  };
-}
 
 interface EditDailyEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialEntry: DailyEntry | null;
-  onSave: (updatedEntry: DailyEntry) => Promise<void>; // onSave now expects a Promise
+  onSave: (updatedEntry: DailyEntry) => Promise<void>;
 }
 
 const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClose, initialEntry, onSave }) => {
   const [journalText, setJournalText] = React.useState(initialEntry?.text || "");
   const [moodEmoji, setMoodEmoji] = React.useState(initialEntry?.mood || "😊");
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
-  const [yearlyProgress, setYearlyProgress] = React.useState<YearlyProgressRecord>({});
+  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: string[] } }>({});
+  const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
   const [isLoading, setIsLoading] = React.useState(false);
 
   // Load data when modal opens or initialEntry changes
   React.useEffect(() => {
-    if (initialEntry) {
-      setJournalText(initialEntry.text);
-      setMoodEmoji(initialEntry.mood);
+    const fetchData = async () => {
+      if (initialEntry) {
+        setJournalText(initialEntry.text);
+        setMoodEmoji(initialEntry.mood);
 
-      const fetchHabits = async () => {
-        const { data, error } = await supabase
-          .from('habits')
+        const fetchHabits = async () => {
+          const { data, error } = await supabase
+            .from('habits')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+          if (error) {
+            console.error("Error fetching habits for EditDailyEntryModal:", error);
+            showError("Failed to load habits.");
+          } else {
+            setHabits(data as Habit[]);
+          }
+        };
+        fetchHabits();
+
+        // Fetch daily habit tracking for the selected date
+        const { data: trackingData, error: trackingError } = await supabase
+          .from('daily_habit_tracking')
           .select('*')
-          .order('created_at', { ascending: false });
+          .eq('date', initialEntry.date);
 
-        if (error) {
-          console.error("Error fetching habits for EditDailyEntryModal:", error);
-          showError("Failed to load habits.");
+        if (trackingError) {
+          console.error("Error fetching daily tracking:", trackingError);
+          showError("Failed to load daily habit tracking.");
+          setDailyTracking({});
         } else {
-          setHabits(data as Habit[]);
+          const newDailyTracking: { [date: string]: { [habitId: string]: string[] } } = { [initialEntry.date]: {} };
+          trackingData.forEach(record => {
+            newDailyTracking[initialEntry.date][record.habit_id] = record.tracked_values;
+          });
+          setDailyTracking(newDailyTracking);
         }
-      };
-      fetchHabits();
 
-      const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
-      if (storedDailyTracking) {
-        setDailyTracking(JSON.parse(storedDailyTracking));
-      } else {
-        setDailyTracking({});
-      }
+        // Fetch yearly progress for the current year
+        const currentYear = new Date(initialEntry.date).getFullYear().toString();
+        const { data: yearlyProgressData, error: yearlyProgressError } = await supabase
+          .from('yearly_habit_progress')
+          .select('*')
+          .eq('year', currentYear);
 
-      const storedYearlyProgress = localStorage.getItem('yearlyHabitProgress');
-      if (storedYearlyProgress) {
-        setYearlyProgress(JSON.parse(storedYearlyProgress));
-      } else {
-        setYearlyProgress({});
+        if (yearlyProgressError) {
+          console.error("Error fetching yearly progress:", yearlyProgressError);
+          showError("Failed to load yearly habit progress.");
+          setYearlyProgress({});
+        } else {
+          const newYearlyProgress: { [year: string]: { [habitId: string]: number } } = { [currentYear]: {} };
+          yearlyProgressData.forEach(record => {
+            newYearlyProgress[currentYear][record.habit_id] = record.progress_count;
+          });
+          setYearlyProgress(newYearlyProgress);
+        }
       }
-    }
+    };
+    fetchData();
   }, [initialEntry]);
 
-  const handleUpdateTracking = (habitId: string, date: string, trackedValuesForDay: string[], newYearlyProgress: number) => {
-    setDailyTracking(prev => {
-      const newState = {
+  const handleUpdateTracking = async (habitId: string, date: string, trackedValuesForDay: string[], newYearlyProgress: number) => {
+    // Update daily tracking in Supabase
+    const dailyTrackingRecord = {
+      date: date,
+      habit_id: habitId,
+      tracked_values: trackedValuesForDay,
+    };
+
+    const { error: dailyTrackingError } = await supabase
+      .from('daily_habit_tracking')
+      .upsert(dailyTrackingRecord, { onConflict: 'date,habit_id' });
+
+    if (dailyTrackingError) {
+      console.error("Error updating daily tracking:", dailyTrackingError);
+      showError("Failed to update daily habit tracking.");
+    } else {
+      setDailyTracking(prev => ({
         ...prev,
         [date]: {
           ...(prev[date] || {}),
           [habitId]: trackedValuesForDay,
         },
-      };
-      localStorage.setItem('dailyHabitTracking', JSON.stringify(newState));
-      return newState;
-    });
+      }));
+    }
 
+    // Update yearly progress in Supabase
     const currentYear = new Date(date).getFullYear().toString();
-    setYearlyProgress(prev => {
-      const newState = {
+    const yearlyProgressRecord = {
+      year: currentYear,
+      habit_id: habitId,
+      progress_count: newYearlyProgress,
+    };
+
+    const { error: yearlyProgressError } = await supabase
+      .from('yearly_habit_progress')
+      .upsert(yearlyProgressRecord, { onConflict: 'year,habit_id' });
+
+    if (yearlyProgressError) {
+      console.error("Error updating yearly progress:", yearlyProgressError);
+      showError("Failed to update yearly habit progress.");
+    } else {
+      setYearlyProgress(prev => ({
         ...prev,
         [currentYear]: {
           ...(prev[currentYear] || {}),
           [habitId]: newYearlyProgress,
         },
-      };
-      localStorage.setItem('yearlyHabitProgress', JSON.stringify(newState));
-      return newState;
-    });
+      }));
+    }
   };
 
   const handleSave = async () => {
@@ -114,12 +153,12 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
       ...initialEntry,
       text: journalText.trim(),
       mood: moodEmoji,
-      timestamp: new Date().toISOString(), // Update timestamp on edit
+      timestamp: new Date().toISOString(),
     };
 
-    await onSave(updatedEntry); // Call the prop function to save to Supabase
+    await onSave(updatedEntry);
     setIsLoading(false);
-    onClose(); // Close modal after saving
+    onClose();
   };
 
   if (!initialEntry) return null;

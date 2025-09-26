@@ -6,31 +6,13 @@ import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import EditHabitModal from "@/components/EditHabitModal";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
-import { Habit } from "@/types/habit"; // Import the centralized Habit interface
-import { supabase } from "@/lib/supabase"; // Import Supabase client
+import { Habit } from "@/types/habit";
+import { supabase } from "@/lib/supabase";
 
 interface FrequencyConditionInput {
   trackingValue: string;
   frequency: "weekly" | "monthly";
   count: number | "";
-}
-
-interface DailyTrackingRecord {
-  [date: string]: {
-    [habitId: string]: string[];
-  };
-}
-
-interface YearlyProgressRecord {
-  [year: string]: {
-    [habitId: string]: number;
-  };
-}
-
-interface FinesPeriodData {
-  [periodKey: string]: {
-    [habitId: string]: any[];
-  };
 }
 
 const MAX_FREQUENCY_CONDITIONS = 5;
@@ -64,7 +46,7 @@ const HabitSetup: React.FC = () => {
     const { data, error } = await supabase
       .from('habits')
       .select('*')
-      .order('created_at', { ascending: false }); // Order by creation date
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error("Error fetching habits:", error);
@@ -80,9 +62,6 @@ const HabitSetup: React.FC = () => {
   React.useEffect(() => {
     fetchHabits();
   }, [fetchHabits]);
-
-  // Note: We no longer save habits to localStorage directly from this component,
-  // as Supabase is now the source of truth.
 
   const resetForm = () => {
     setHabitName("");
@@ -145,29 +124,28 @@ const HabitSetup: React.FC = () => {
     const newHabitData = {
       name: habitName.trim(),
       color: habitColor,
-      tracking_values: tempTrackingValues, // Matches Supabase column name
-      frequency_conditions: frequencyConditions // Matches Supabase column name
+      tracking_values: tempTrackingValues,
+      frequency_conditions: frequencyConditions
         .filter(cond => cond.trackingValue && cond.count !== "")
         .map(cond => ({ ...cond, count: Number(cond.count) as number })),
-      fine_amount: typeof fineAmount === 'number' ? fineAmount : 0, // Matches Supabase column name
+      fine_amount: typeof fineAmount === 'number' ? fineAmount : 0,
       yearly_goal: {
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
         contributingValues: contributingValues,
       },
-      // created_at will be set by Supabase DEFAULT NOW()
     };
 
     setIsLoading(true);
     const { data, error } = await supabase
       .from('habits')
       .insert([newHabitData])
-      .select(); // Select the newly inserted row
+      .select();
 
     if (error) {
       console.error("Error adding habit:", error);
       showError("Failed to add habit.");
     } else if (data && data.length > 0) {
-      setHabits((prev) => [data[0] as Habit, ...prev]); // Add the Supabase-returned habit
+      setHabits((prev) => [data[0] as Habit, ...prev]);
       showSuccess("Habit added successfully!");
       resetForm();
     }
@@ -180,7 +158,6 @@ const HabitSetup: React.FC = () => {
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
-    // Prepare data for Supabase, converting camelCase to snake_case for columns
     const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, created_at } = updatedHabit;
     const updatedHabitData = {
       name,
@@ -189,7 +166,7 @@ const HabitSetup: React.FC = () => {
       frequency_conditions: frequencyConditions,
       fine_amount: fineAmount,
       yearly_goal: yearlyGoal,
-      created_at, // Keep original created_at
+      created_at,
     };
 
     setIsLoading(true);
@@ -204,7 +181,6 @@ const HabitSetup: React.FC = () => {
       showError("Failed to update habit.");
     } else if (data && data.length > 0) {
       setHabits((prev) => prev.map(h => h.id === id ? data[0] as Habit : h));
-      // Success toast is handled inside the modal
     }
     setIsLoading(false);
   };
@@ -220,82 +196,62 @@ const HabitSetup: React.FC = () => {
     const idToDelete = habitToDelete.id;
 
     setIsLoading(true);
-    const { error } = await supabase
+
+    // Delete habit from Supabase
+    const { error: habitDeleteError } = await supabase
       .from('habits')
       .delete()
       .eq('id', idToDelete);
 
-    if (error) {
-      console.error("Error deleting habit:", error);
+    if (habitDeleteError) {
+      console.error("Error deleting habit:", habitDeleteError);
       showError("Failed to delete habit.");
-    } else {
-      // 1. Remove habit from local state
-      setHabits(prev => prev.filter(h => h.id !== idToDelete));
-
-      // 2. Clean up dailyHabitTracking (still in localStorage for now)
-      const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
-      if (storedDailyTracking) {
-        const dailyTracking: DailyTrackingRecord = JSON.parse(storedDailyTracking);
-        const updatedDailyTracking: DailyTrackingRecord = {};
-        for (const date in dailyTracking) {
-          const dateTracking = dailyTracking[date];
-          const newDateTracking: { [habitId: string]: string[] } = {};
-          for (const habitId in dateTracking) {
-            if (habitId !== idToDelete) {
-              newDateTracking[habitId] = dateTracking[habitId];
-            }
-          }
-          if (Object.keys(newDateTracking).length > 0) {
-            updatedDailyTracking[date] = newDateTracking;
-          }
-        }
-        localStorage.setItem('dailyHabitTracking', JSON.stringify(updatedDailyTracking));
-      }
-
-      // 3. Clean up yearlyHabitProgress (still in localStorage for now)
-      const storedYearlyProgress = localStorage.getItem('yearlyHabitProgress');
-      if (storedYearlyProgress) {
-        const yearlyProgress: YearlyProgressRecord = JSON.parse(storedYearlyProgress);
-        const updatedYearlyProgress: YearlyProgressRecord = {};
-        for (const year in yearlyProgress) {
-          const yearProgress = yearlyProgress[year];
-          const newYearProgress: { [habitId: string]: number } = {};
-          for (const habitId in yearProgress) {
-            if (habitId !== idToDelete) {
-              newYearProgress[habitId] = yearProgress[habitId];
-            }
-          }
-          if (Object.keys(newYearProgress).length > 0) {
-            updatedYearlyProgress[year] = newYearProgress;
-          }
-        }
-        localStorage.setItem('yearlyHabitProgress', JSON.stringify(updatedYearlyProgress));
-      }
-
-      // 4. Clean up dailyJournalFinesStatus (still in localStorage for now)
-      const storedFinesStatus = localStorage.getItem('dailyJournalFinesStatus');
-      if (storedFinesStatus) {
-        const finesStatus: FinesPeriodData = JSON.parse(storedFinesStatus);
-        const updatedFinesStatus: FinesPeriodData = {};
-        for (const periodKey in finesStatus) {
-          const periodFines = finesStatus[periodKey];
-          const newPeriodFines: { [habitId: string]: any[] } = {};
-          for (const habitId in periodFines) {
-            if (habitId !== idToDelete) {
-              newPeriodFines[habitId] = periodFines[habitId];
-            }
-          }
-          if (Object.keys(newPeriodFines).length > 0) {
-            updatedFinesStatus[periodKey] = newPeriodFines;
-          }
-        }
-        localStorage.setItem('dailyJournalFinesStatus', JSON.stringify(updatedFinesStatus));
-      }
-
-      showSuccess(`Habit '${habitToDelete.name}' and its associated data deleted successfully!`);
-      setIsDeleteModalOpen(false);
-      setHabitToDelete(null);
+      setIsLoading(false);
+      return;
     }
+
+    // Delete associated daily habit tracking records
+    const { error: trackingDeleteError } = await supabase
+      .from('daily_habit_tracking')
+      .delete()
+      .eq('habit_id', idToDelete);
+
+    if (trackingDeleteError) {
+      console.error("Error deleting associated daily tracking:", trackingDeleteError);
+      showError("Failed to delete associated daily tracking data.");
+      // Continue with other deletions even if this fails
+    }
+
+    // Delete associated yearly habit progress records
+    const { error: progressDeleteError } = await supabase
+      .from('yearly_habit_progress')
+      .delete()
+      .eq('habit_id', idToDelete);
+
+    if (progressDeleteError) {
+      console.error("Error deleting associated yearly progress:", progressDeleteError);
+      showError("Failed to delete associated yearly progress data.");
+      // Continue with other deletions even if this fails
+    }
+
+    // Delete associated fines status records
+    const { error: finesDeleteError } = await supabase
+      .from('fines_status')
+      .delete()
+      .eq('habit_id', idToDelete);
+
+    if (finesDeleteError) {
+      console.error("Error deleting associated fines status:", finesDeleteError);
+      showError("Failed to delete associated fines data.");
+      // Continue with other deletions even if this fails
+    }
+
+    // Remove habit from local state
+    setHabits(prev => prev.filter(h => h.id !== idToDelete));
+
+    showSuccess(`Habit '${habitToDelete.name}' and its associated data deleted successfully!`);
+    setIsDeleteModalOpen(false);
+    setHabitToDelete(null);
     setIsLoading(false);
   };
 

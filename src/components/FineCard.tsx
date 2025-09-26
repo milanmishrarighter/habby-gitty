@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { showSuccess } from "@/utils/toast";
 import { formatDateRange, getDatesInPeriod } from "@/lib/date-utils";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
-import { Habit } from "@/types/habit"; // Import the centralized Habit interface
+import { Habit } from "@/types/habit";
+import { supabase } from "@/lib/supabase"; // Import Supabase client
 
 interface DailyTrackingRecord {
   [date: string]: {
@@ -24,8 +25,8 @@ interface FineCardProps {
   habits: Habit[];
   dailyTracking: DailyTrackingRecord;
   finesStatus: FinesPeriodData;
-  onUpdateFineStatus: (periodKey: string, updatedFine: FineDetail) => void;
-  isCurrentPeriod: boolean; // New prop to indicate if it's the current week/month
+  onUpdateFineStatus: (periodKey: string, updatedFine: FineDetail) => Promise<void>; // Now returns a Promise
+  isCurrentPeriod: boolean;
 }
 
 const FineCard: React.FC<FineCardProps> = ({
@@ -66,6 +67,7 @@ const FineCard: React.FC<FineCardProps> = ({
                 f => f.trackingValue === condition.trackingValue
               );
               currentFines.push({
+                id: existingFine?.id || '', // Use existing ID or empty string for new fines
                 habitId: habit.id,
                 habitName: habit.name,
                 fineAmount: habit.fineAmount,
@@ -74,6 +76,7 @@ const FineCard: React.FC<FineCardProps> = ({
                 trackingValue: condition.trackingValue,
                 conditionCount: condition.count,
                 actualCount: actualCount,
+                created_at: existingFine?.created_at || new Date().toISOString(), // Use existing or new timestamp
               });
             }
 
@@ -99,10 +102,9 @@ const FineCard: React.FC<FineCardProps> = ({
     calculateFinesAndWarnings();
   }, [periodStart, periodEnd, periodType, habits, dailyTracking, finesStatus, isCurrentPeriod]);
 
-  const handleStatusChange = (fine: FineDetail, newStatus: 'paid' | 'unpaid') => {
-    const updatedFine = { ...fine, status: newStatus };
-    onUpdateFineStatus(periodKey, updatedFine);
-    showSuccess(`Fine for '${fine.habitName}' (${fine.trackingValue}) marked as ${newStatus}.`);
+  const handleStatusChange = async (fine: FineDetail, newStatus: 'paid' | 'unpaid') => { // Made async
+    const updatedFine = { ...fine, status: newStatus, created_at: new Date().toISOString() }; // Update timestamp on status change
+    await onUpdateFineStatus(periodKey, updatedFine);
   };
 
   const totalFineAmount = finesForPeriod.reduce((sum, fine) => sum + fine.fineAmount, 0);
