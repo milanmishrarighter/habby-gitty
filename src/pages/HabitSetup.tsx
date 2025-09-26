@@ -5,13 +5,14 @@ import HabitCard from "@/components/HabitCard";
 import { showSuccess, showError } from "@/utils/toast";
 
 interface Habit {
+  id: string; // Added unique ID
   name: string;
   color: string;
   trackingValues: string[];
   frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
   fineAmount: number;
   yearlyGoal: {
-    count: number;
+    count: number; // This is the TARGET count
     contributingValues: string[];
   };
   createdAt: string; // Storing as string for simplicity with localStorage
@@ -95,6 +96,7 @@ const HabitSetup: React.FC = () => {
     }
 
     const newHabit: Habit = {
+      id: crypto.randomUUID(), // Generate a unique ID
       name: habitName.trim(),
       color: habitColor,
       trackingValues: tempTrackingValues,
@@ -289,8 +291,8 @@ const HabitSetup: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {habits.map((habit, index) => (
-                <HabitCard key={index} habit={habit} />
+              {habits.map((habit) => (
+                <HabitCard key={habit.id} habit={habit} />
               ))}
             </div>
           )}

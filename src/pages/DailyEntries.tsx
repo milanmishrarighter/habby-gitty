@@ -2,6 +2,7 @@
 
 import React from "react";
 import EmojiPicker from "@/components/EmojiPicker";
+import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
 import { showSuccess, showError } from "@/utils/toast";
 
 interface DailyEntry {
@@ -11,10 +12,94 @@ interface DailyEntry {
   timestamp: string;
 }
 
-const DailyEntries: React.FC = () => {
+interface Habit {
+  id: string;
+  name: string;
+  color: string;
+  trackingValues: string[];
+  frequencyConditions: { trackingValue: string; frequency: string; count: number }[];
+  fineAmount: number;
+  yearlyGoal: {
+    count: number;
+    contributingValues: string[];
+  };
+  createdAt: string;
+}
+
+// Data structures for localStorage
+interface DailyTrackingRecord {
+  [date: string]: {
+    [habitId: string]: string[]; // Array of contributing values tracked for this habit on this date
+  };
+}
+
+interface YearlyProgressRecord {
+  [year: string]: {
+    [habitId: string]: number; // Current achieved count for this habit in this year
+  };
+}
+
+interface DailyEntriesProps {
+  setActiveTab: (tab: string) => void;
+}
+
+const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [entryDate, setEntryDate] = React.useState("");
   const [journalText, setJournalText] = React.useState("");
   const [moodEmoji, setMoodEmoji] = React.useState("😊");
+  const [habits, setHabits] = React.useState<Habit[]>([]);
+  const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
+  const [yearlyProgress, setYearlyProgress] = React.useState<YearlyProgressRecord>({});
+
+  // Load habits on component mount
+  React.useEffect(() => {
+    const storedHabits = localStorage.getItem('dailyJournalHabits');
+    if (storedHabits) {
+      setHabits(JSON.parse(storedHabits));
+    }
+  }, []);
+
+  // Load daily tracking and yearly progress on component mount
+  React.useEffect(() => {
+    const storedDailyTracking = localStorage.getItem('dailyHabitTracking');
+    if (storedDailyTracking) {
+      setDailyTracking(JSON.parse(storedDailyTracking));
+    }
+    const storedYearlyProgress = localStorage.getItem('yearlyHabitProgress');
+    if (storedYearlyProgress) {
+      setYearlyProgress(JSON.parse(storedYearlyProgress));
+    }
+  }, []);
+
+  // Save daily tracking and yearly progress whenever they change
+  React.useEffect(() => {
+    localStorage.setItem('dailyHabitTracking', JSON.stringify(dailyTracking));
+  }, [dailyTracking]);
+
+  React.useEffect(() => {
+    localStorage.setItem('yearlyHabitProgress', JSON.stringify(yearlyProgress));
+  }, [yearlyProgress]);
+
+  // Effect to load journal entry for selected date
+  React.useEffect(() => {
+    if (entryDate) {
+      const storedEntries = localStorage.getItem("dailyJournalEntries");
+      const dailyEntries: DailyEntry[] = storedEntries ? JSON.parse(storedEntries) : [];
+      const entryForDate = dailyEntries.find(entry => entry.date === entryDate);
+
+      if (entryForDate) {
+        setJournalText(entryForDate.text);
+        setMoodEmoji(entryForDate.mood);
+      } else {
+        setJournalText("");
+        setMoodEmoji("😊");
+      }
+    } else {
+      setJournalText("");
+      setMoodEmoji("😊");
+    }
+  }, [entryDate]);
+
 
   const saveEntry = () => {
     if (!entryDate || !journalText.trim()) {
@@ -29,18 +114,43 @@ const DailyEntries: React.FC = () => {
       timestamp: new Date().toISOString(),
     };
 
-    // Retrieve existing entries, add new one, and save back to localStorage
     const storedEntries = localStorage.getItem("dailyJournalEntries");
-    const dailyEntries = storedEntries ? JSON.parse(storedEntries) : [];
-    dailyEntries.push(newEntry);
+    let dailyEntries: DailyEntry[] = storedEntries ? JSON.parse(storedEntries) : [];
+
+    // Check if an entry for this date already exists and update it
+    const existingEntryIndex = dailyEntries.findIndex(entry => entry.date === entryDate);
+    if (existingEntryIndex > -1) {
+      dailyEntries[existingEntryIndex] = newEntry;
+    } else {
+      dailyEntries.push(newEntry);
+    }
+
     localStorage.setItem("dailyJournalEntries", JSON.stringify(dailyEntries));
 
     showSuccess("Daily entry saved!");
+  };
 
-    // Reset the form after saving
-    setEntryDate("");
-    setJournalText("");
-    setMoodEmoji("😊");
+  const handleUpdateTracking = (habitId: string, date: string, trackedValuesForDay: string[], newYearlyProgress: number) => {
+    setDailyTracking(prev => ({
+      ...prev,
+      [date]: {
+        ...(prev[date] || {}),
+        [habitId]: trackedValuesForDay,
+      },
+    }));
+
+    const currentYear = new Date(date).getFullYear().toString();
+    setYearlyProgress(prev => ({
+      ...prev,
+      [currentYear]: {
+        ...(prev[currentYear] || {}),
+        [habitId]: newYearlyProgress,
+      },
+    }));
+  };
+
+  const handleSetupHabitClick = () => {
+    setActiveTab("setup");
   };
 
   return (
@@ -85,6 +195,41 @@ const DailyEntries: React.FC = () => {
         >
           Save Entry
         </button>
+      </div>
+
+      {/* Daily Habit Tracking Section */}
+      <div className="mt-8 pt-8 border-t border-gray-200">
+        <h3 className="text-2xl font-bold text-gray-800 mb-4">Daily Habit Tracking</h3>
+        {habits.length === 0 ? (
+          <div className="dotted-border-container">
+            <p className="text-lg mb-2">No habits added yet.</p>
+            <button
+              onClick={handleSetupHabitClick}
+              className="text-blue-500 hover:text-blue-700 underline font-semibold"
+            >
+              Click here to setup a new habit
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {habits.map((habit) => {
+              const currentYear = entryDate ? new Date(entryDate).getFullYear().toString() : new Date().getFullYear().toString();
+              const currentYearlyProgress = yearlyProgress[currentYear]?.[habit.id] || 0;
+              const initialTrackedValues = entryDate ? (dailyTracking[entryDate]?.[habit.id] || []) : [];
+
+              return (
+                <DailyHabitTrackerCard
+                  key={habit.id}
+                  habit={habit}
+                  entryDate={entryDate}
+                  onUpdateTracking={handleUpdateTracking}
+                  currentYearlyProgress={currentYearlyProgress}
+                  initialTrackedValues={initialTrackedValues}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

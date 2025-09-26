@@ -61,7 +61,7 @@ const App = () => {
         </nav>
 
         {/* Tab Content */}
-        {activeTab === "daily" && <DailyEntries />}
+        {activeTab === "daily" && <DailyEntries setActiveTab={setActiveTab} />}
         {activeTab === "recorded" && <RecordedEntries />}
         {activeTab === "fines" && <Fines />}
         {activeTab === "setup" && <HabitSetup />}
