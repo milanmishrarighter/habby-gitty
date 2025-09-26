@@ -2,6 +2,7 @@
 
 import React from "react";
 import EditDailyEntryModal from "@/components/EditDailyEntryModal";
+import DeleteConfirmationModal from "@/components/DeleteConfirmationModal"; // Import the new modal
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +18,8 @@ const RecordedEntries: React.FC = () => {
   const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false); // State for delete modal
+  const [dateToDelete, setDateToDelete] = React.useState<string | null>(null); // State to hold the date of the entry to be deleted
 
   // Function to load entries from localStorage
   const loadEntries = () => {
@@ -36,12 +39,19 @@ const RecordedEntries: React.FC = () => {
     loadEntries();
   }, []);
 
-  const handleDeleteEntry = (dateToDelete: string) => {
-    if (window.confirm("Are you sure you want to delete this entry?")) {
+  const handleDeleteClick = (date: string) => {
+    setDateToDelete(date);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (dateToDelete) {
       const updatedEntries = dailyEntries.filter(entry => entry.date !== dateToDelete);
       localStorage.setItem("dailyJournalEntries", JSON.stringify(updatedEntries));
       setDailyEntries(updatedEntries);
       showSuccess("Entry deleted successfully!");
+      setDateToDelete(null);
+      setIsDeleteModalOpen(false);
 
       // Optionally, also clear habit tracking for this date if desired
       // For now, we'll leave habit tracking as is, as it might be useful to keep history
@@ -96,7 +106,7 @@ const RecordedEntries: React.FC = () => {
               </CardContent>
               <div className="flex justify-end gap-2 p-4 border-t">
                 <Button variant="outline" size="sm" onClick={() => handleEditEntry(entry)}>Edit</Button>
-                <Button variant="destructive" size="sm" onClick={() => handleDeleteEntry(entry.date)}>Delete</Button>
+                <Button variant="destructive" size="sm" onClick={() => handleDeleteClick(entry.date)}>Delete</Button>
               </div>
             </Card>
           ))}
@@ -108,6 +118,13 @@ const RecordedEntries: React.FC = () => {
         onClose={() => setIsEditModalOpen(false)}
         initialEntry={entryToEdit}
         onSave={handleSaveEditedEntry}
+      />
+
+      <DeleteConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={confirmDelete}
+        itemToDeleteName={dateToDelete ? `the entry for ${dateToDelete}` : "this entry"}
       />
     </div>
   );
