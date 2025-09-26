@@ -6,6 +6,7 @@ import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { format } from 'date-fns'; // Import format from date-fns
 
 interface DailyEntry {
   date: string;
@@ -130,11 +131,12 @@ const RecordedEntries: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {dailyEntries.map((entry) => {
             const habitsTrackedForDay = dailyTracking[entry.date];
+            const formattedDate = format(new Date(entry.date), 'do MMMM yyyy'); // Format the date here
             return (
               <Card key={entry.date} className="flex flex-col justify-between">
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
-                    <span>{entry.date}</span>
+                    <span>{formattedDate}</span> {/* Display the formatted date */}
                     <span className="text-3xl">{entry.mood}</span>
                   </CardTitle>
                 </CardHeader>
