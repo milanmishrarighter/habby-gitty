@@ -49,7 +49,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         console.error("Error fetching habits for DailyEntries:", error);
         showError("Failed to load habits for tracking.");
       } else {
-        setHabits((data || []).map(mapSupabaseHabitToHabit)); // Apply mapping
+        console.log("DailyEntries: Supabase raw habits data:", data); // Log raw data
+        const mappedHabits = (data || []).map(mapSupabaseHabitToHabit); // Apply mapping
+        console.log("DailyEntries: Mapped habits data:", mappedHabits); // Log mapped data
+        setHabits(mappedHabits);
       }
     };
     fetchHabits();
@@ -236,6 +239,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const handleSetupHabitClick = () => {
     setActiveTab("setup");
   };
+
+  console.log("DailyEntries: Current habits state for rendering:", habits); // Log state before rendering
 
   return (
     <div id="daily" className="tab-content text-center">

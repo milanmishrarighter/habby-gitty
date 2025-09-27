@@ -50,12 +50,14 @@ const HabitSetup: React.FC = () => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error("Error fetching habits:", error);
+      console.error("Error fetching habits in HabitSetup:", error);
       setError("Failed to load habits. Please try again.");
       showError("Failed to load habits.");
     } else {
-      // Map the fetched data to the Habit interface
-      setHabits((data || []).map(mapSupabaseHabitToHabit));
+      console.log("HabitSetup: Supabase raw habits data:", data); // Log raw data
+      const mappedHabits = (data || []).map(mapSupabaseHabitToHabit);
+      console.log("HabitSetup: Mapped habits data:", mappedHabits); // Log mapped data
+      setHabits(mappedHabits);
     }
     setIsLoading(false);
   }, []);
@@ -274,6 +276,8 @@ const HabitSetup: React.FC = () => {
       </div>
     );
   }
+
+  console.log("HabitSetup: Current habits state for rendering:", habits); // Log state before rendering
 
   return (
     <div id="setup" className="tab-content text-center">

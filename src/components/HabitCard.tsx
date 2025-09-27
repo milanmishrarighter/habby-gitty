@@ -11,6 +11,8 @@ interface HabitCardProps {
 }
 
 const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
+  console.log("HabitCard: Rendering with habit:", habit); // Log the habit prop
+
   return (
     <div className="p-4 rounded-lg shadow-md flex flex-col space-y-2" style={{ backgroundColor: `${habit.color}33` }}>
       <div className="flex items-center justify-between">
