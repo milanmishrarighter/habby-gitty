@@ -7,12 +7,14 @@ import HabitSetup from "./pages/HabitSetup";
 import NotFound from "./pages/NotFound";
 import { Toaster as Sonner } from "@/components/ui/sonner"; // Keeping sonner for toasts
 import SupabaseConnectionStatus from "@/components/SupabaseConnectionStatus"; // Import the new component
+import VersionDisplay from "@/components/VersionDisplay"; // Import the new VersionDisplay component
 
 const App = () => {
   const [activeTab, setActiveTab] = React.useState("daily");
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center relative"> {/* Added relative for absolute positioning of version */}
+      <VersionDisplay version="1.0.1" /> {/* Display the version number */}
       <Sonner /> {/* To display toasts */}
       <div className="w-full max-w-4xl p-4 sm:p-6 lg:p-8 bg-white shadow-xl rounded-2xl my-8">
         {/* Supabase Connection Status Indicator */}
