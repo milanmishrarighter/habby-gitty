@@ -16,6 +16,7 @@ export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
       count: supabaseHabit.yearly_goal?.count || 0,
       contributingValues: supabaseHabit.yearly_goal?.contributingValues || [],
     },
+    allowedOutOfControlMisses: supabaseHabit.allowed_out_of_control_misses || 0, // Map new field
     created_at: supabaseHabit.created_at,
   };
 };

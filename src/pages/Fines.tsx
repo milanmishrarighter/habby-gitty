@@ -7,13 +7,16 @@ import FineCard from "@/components/FineCard";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord as SupabaseDailyTrackingRecord } from "@/types/tracking"; // Import Supabase type
+import { DailyTrackingRecord as SupabaseDailyTrackingRecord, YearlyOutOfControlMissCount } from "@/types/tracking"; // Import Supabase type and new type
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 
 interface DailyTrackingRecord {
   [date: string]: {
-    [habitId: string]: string[];
+    [habitId: string]: {
+      trackedValues: string[];
+      isOutOfControlMiss: boolean;
+    };
   };
 }
 
@@ -22,6 +25,7 @@ const Fines: React.FC = () => {
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
   const [finesStatus, setFinesStatus] = React.useState<FinesPeriodData>({});
+  const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [lastEntryDate, setLastEntryDate] = React.useState<Date | null>(null);
 
   // Load data from Supabase
@@ -52,7 +56,10 @@ const Fines: React.FC = () => {
           if (!newDailyTracking[record.date]) {
             newDailyTracking[record.date] = {};
           }
-          newDailyTracking[record.date][record.habit_id] = record.tracked_values;
+          newDailyTracking[record.date][record.habit_id] = {
+            trackedValues: record.tracked_values,
+            isOutOfControlMiss: record.is_out_of_control_miss,
+          };
         });
         setDailyTracking(newDailyTracking);
       }
@@ -88,6 +95,24 @@ const Fines: React.FC = () => {
           });
         });
         setFinesStatus(newFinesStatus);
+      }
+
+      // Fetch yearly out-of-control miss counts for the current year
+      const currentYear = new Date().getFullYear().toString();
+      const { data: missCountsData, error: missCountsError } = await supabase
+        .from('yearly_out_of_control_miss_counts')
+        .select('*')
+        .eq('year', currentYear);
+
+      if (missCountsError) {
+        console.error("Error fetching yearly out-of-control miss counts:", missCountsError);
+        setYearlyOutOfControlMissCounts({});
+      } else {
+        const newMissCounts: { [habitId: string]: YearlyOutOfControlMissCount } = {};
+        missCountsData.forEach(record => {
+          newMissCounts[record.habit_id] = record;
+        });
+        setYearlyOutOfControlMissCounts(newMissCounts);
       }
 
       // Fetch last entry date from Supabase
@@ -213,6 +238,7 @@ const Fines: React.FC = () => {
                 finesStatus={finesStatus}
                 onUpdateFineStatus={handleUpdateFineStatus}
                 isCurrentPeriod={isSameWeek(week.start, today, { weekStartsOn: 1 })}
+                yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts} // Pass new prop
               />
             ))
           )}
@@ -239,6 +265,7 @@ const Fines: React.FC = () => {
                 finesStatus={finesStatus}
                 onUpdateFineStatus={handleUpdateFineStatus}
                 isCurrentPeriod={isSameMonth(month.start, today)}
+                yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts} // Pass new prop
               />
             ))
           )}

@@ -9,7 +9,7 @@ import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking"; // Import new types
+import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 
@@ -30,8 +30,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [journalText, setJournalText] = React.useState("");
   const [moodEmoji, setMoodEmoji] = React.useState("😊");
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: string[] } }>({});
+  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
+  const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null);
 
   const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
@@ -67,6 +68,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         setCurrentEntryId(null);
         setDailyTracking({});
         setYearlyProgress({});
+        setYearlyOutOfControlMissCounts({});
         return;
       }
 
@@ -104,9 +106,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         showError("Failed to load daily habit tracking.");
         setDailyTracking({});
       } else {
-        const newDailyTracking: { [date: string]: { [habitId: string]: string[] } } = { [entryDate]: {} };
+        const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = { [entryDate]: {} };
         trackingData.forEach(record => {
-          newDailyTracking[entryDate][record.habit_id] = record.tracked_values;
+          newDailyTracking[entryDate][record.habit_id] = {
+            trackedValues: record.tracked_values,
+            isOutOfControlMiss: record.is_out_of_control_miss,
+          };
         });
         setDailyTracking(newDailyTracking);
       }
@@ -128,6 +133,24 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           newYearlyProgress[currentYear][record.habit_id] = record.progress_count;
         });
         setYearlyProgress(newYearlyProgress);
+      }
+
+      // Fetch yearly out-of-control miss counts for the current year
+      const { data: missCountsData, error: missCountsError } = await supabase
+        .from('yearly_out_of_control_miss_counts')
+        .select('*')
+        .eq('year', currentYear);
+
+      if (missCountsError) {
+        console.error("Error fetching yearly out-of-control miss counts:", missCountsError);
+        showError("Failed to load out-of-control miss counts.");
+        setYearlyOutOfControlMissCounts({});
+      } else {
+        const newMissCounts: { [habitId: string]: YearlyOutOfControlMissCount } = {};
+        missCountsData.forEach(record => {
+          newMissCounts[record.habit_id] = record;
+        });
+        setYearlyOutOfControlMissCounts(newMissCounts);
       }
     };
     fetchDataForDate();
@@ -185,12 +208,20 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     saveEntry(true);
   };
 
-  const handleUpdateTracking = async (habitId: string, date: string, trackedValuesForDay: string[], newYearlyProgress: number) => {
+  const handleUpdateTracking = async (
+    habitId: string,
+    date: string,
+    trackedValuesForDay: string[],
+    newYearlyProgress: number,
+    isOutOfControlMiss: boolean,
+    oldIsOutOfControlMiss: boolean,
+  ) => {
     // Update daily tracking in Supabase
     const dailyTrackingRecord = {
       date: date,
       habit_id: habitId,
       tracked_values: trackedValuesForDay,
+      is_out_of_control_miss: isOutOfControlMiss,
     };
 
     const { error: dailyTrackingError } = await supabase
@@ -205,7 +236,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         ...prev,
         [date]: {
           ...(prev[date] || {}),
-          [habitId]: trackedValuesForDay,
+          [habitId]: {
+            trackedValues: trackedValuesForDay,
+            isOutOfControlMiss: isOutOfControlMiss,
+          },
         },
       }));
     }
@@ -232,6 +266,35 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           ...(prev[currentYear] || {}),
           [habitId]: newYearlyProgress,
         },
+      }));
+    }
+
+    // Update yearly out-of-control miss counts in Supabase
+    let updatedUsedCount = yearlyOutOfControlMissCounts[habitId]?.used_count || 0;
+    if (isOutOfControlMiss && !oldIsOutOfControlMiss) {
+      updatedUsedCount += 1;
+    } else if (!isOutOfControlMiss && oldIsOutOfControlMiss) {
+      updatedUsedCount = Math.max(0, updatedUsedCount - 1);
+    }
+
+    const yearlyMissCountRecord = {
+      habit_id: habitId,
+      year: currentYear,
+      used_count: updatedUsedCount,
+    };
+
+    const { data: missCountUpsertData, error: missCountError } = await supabase
+      .from('yearly_out_of_control_miss_counts')
+      .upsert(yearlyMissCountRecord, { onConflict: 'habit_id,year' })
+      .select();
+
+    if (missCountError) {
+      console.error("Error updating yearly out-of-control miss count:", missCountError);
+      showError("Failed to update out-of-control miss count.");
+    } else if (missCountUpsertData && missCountUpsertData.length > 0) {
+      setYearlyOutOfControlMissCounts(prev => ({
+        ...prev,
+        [habitId]: missCountUpsertData[0],
       }));
     }
   };
@@ -294,9 +357,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             {habits.map((habit) => {
               const currentYear = entryDate ? new Date(entryDate).getFullYear().toString() : new Date().getFullYear().toString();
               const currentYearlyProgress = yearlyProgress[currentYear]?.[habit.id] || 0;
-              const initialTrackedValue = entryDate && dailyTracking[entryDate]?.[habit.id]?.length > 0
-                ? dailyTracking[entryDate][habit.id][0]
+              const initialTrackedValue = entryDate && dailyTracking[entryDate]?.[habit.id]?.trackedValues?.length > 0
+                ? dailyTracking[entryDate][habit.id].trackedValues[0]
                 : null;
+              const initialIsOutOfControlMiss = entryDate && dailyTracking[entryDate]?.[habit.id]?.isOutOfControlMiss || false;
 
               return (
                 <DailyHabitTrackerCard
@@ -306,6 +370,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   onUpdateTracking={handleUpdateTracking}
                   currentYearlyProgress={currentYearlyProgress}
                   initialTrackedValue={initialTrackedValue}
+                  initialIsOutOfControlMiss={initialIsOutOfControlMiss}
+                  yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
                 />
               );
             })}

@@ -32,6 +32,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
   const [fineAmount, setFineAmount] = React.useState<number | "">("");
   const [yearlyGoalCount, setYearlyGoalCount] = React.useState<number | "">("");
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
+  const [allowedOutOfControlMisses, setAllowedOutOfControlMisses] = React.useState<number | "">(""); // New state
 
   // Populate form fields when modal opens or initialHabit changes
   React.useEffect(() => {
@@ -48,6 +49,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       setFineAmount(initialHabit.fineAmount === 0 ? "" : initialHabit.fineAmount);
       setYearlyGoalCount(initialHabit.yearlyGoal?.count === 0 ? "" : initialHabit.yearlyGoal?.count || ""); // Defensive check
       setContributingValues(initialHabit.yearlyGoal?.contributingValues || []); // Defensive check
+      setAllowedOutOfControlMisses(initialHabit.allowedOutOfControlMisses === 0 ? "" : initialHabit.allowedOutOfControlMisses); // Set new field
     } else {
       // Reset form if no initial habit (e.g., closing modal)
       setHabitName("");
@@ -58,6 +60,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       setFineAmount("");
       setYearlyGoalCount("");
       setContributingValues([]);
+      setAllowedOutOfControlMisses(""); // Reset new field
     }
   }, [initialHabit]);
 
@@ -123,6 +126,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
         contributingValues: contributingValues,
       },
+      allowedOutOfControlMisses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0, // Save new field
       // created_at remains the same
     };
 
@@ -257,6 +261,20 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
               value={fineAmount}
               onChange={(e) => setFineAmount(e.target.value === "" ? "" : Number(e.target.value))}
             />
+          </div>
+
+          {/* Allowed Out-of-Control Misses Section */}
+          <div className="w-full">
+            <label htmlFor="allowed-misses-edit" className="block text-sm font-medium text-gray-700 text-left">Allowed Yearly Out-of-Control Misses</label>
+            <input
+              type="number"
+              id="allowed-misses-edit"
+              placeholder="e.g., 3"
+              className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
+              value={allowedOutOfControlMisses}
+              onChange={(e) => setAllowedOutOfControlMisses(e.target.value === "" ? "" : Number(e.target.value))}
+            />
+            <p className="text-xs text-gray-500 mt-1 text-left">Number of times you can mark a miss as "out of control" per year without incurring a fine.</p>
           </div>
 
           {/* Yearly Goals Section */}

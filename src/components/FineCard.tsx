@@ -8,11 +8,15 @@ import { showSuccess } from "@/utils/toast";
 import { formatDateRange, getDatesInPeriod } from "@/lib/date-utils";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
 import { Habit } from "@/types/habit";
+import { YearlyOutOfControlMissCount } from "@/types/tracking"; // Import new type
 import { supabase } from "@/lib/supabase"; // Import Supabase client
 
 interface DailyTrackingRecord {
   [date: string]: {
-    [habitId: string]: string[];
+    [habitId: string]: {
+      trackedValues: string[];
+      isOutOfControlMiss: boolean;
+    };
   };
 }
 
@@ -25,8 +29,9 @@ interface FineCardProps {
   habits: Habit[];
   dailyTracking: DailyTrackingRecord;
   finesStatus: FinesPeriodData;
-  onUpdateFineStatus: (periodKey: string, updatedFine: FineDetail) => Promise<void>; // Now returns a Promise
+  onUpdateFineStatus: (periodKey: string, updatedFine: FineDetail) => Promise<void>;
   isCurrentPeriod: boolean;
+  yearlyOutOfControlMissCounts: { [habitId: string]: YearlyOutOfControlMissCount }; // New prop
 }
 
 const FineCard: React.FC<FineCardProps> = ({
@@ -40,6 +45,7 @@ const FineCard: React.FC<FineCardProps> = ({
   finesStatus,
   onUpdateFineStatus,
   isCurrentPeriod,
+  yearlyOutOfControlMissCounts,
 }) => {
   const [finesForPeriod, setFinesForPeriod] = React.useState<FineDetail[]>([]);
   const [warnings, setWarnings] = React.useState<string[]>([]);
@@ -49,16 +55,26 @@ const FineCard: React.FC<FineCardProps> = ({
       const currentFines: FineDetail[] = [];
       const currentWarnings: string[] = [];
       const datesInPeriod = getDatesInPeriod(periodStart, periodEnd);
+      const currentYear = periodStart.getFullYear().toString();
 
       habits.forEach(habit => {
         // Defensive check for frequencyConditions
         (habit.frequencyConditions || []).forEach(condition => {
           if (condition.frequency === periodType) {
             let actualCount = 0;
+            let outOfControlMissesUsedInPeriod = 0;
+
             datesInPeriod.forEach(date => {
-              const trackedValuesForDay = dailyTracking[date]?.[habit.id] || [];
-              if (trackedValuesForDay.includes(condition.trackingValue)) {
-                actualCount++;
+              const trackingInfoForDay = dailyTracking[date]?.[habit.id];
+              if (trackingInfoForDay) {
+                // Only count if it's not an out-of-control miss AND it includes the specific tracking value
+                if (!trackingInfoForDay.isOutOfControlMiss && trackingInfoForDay.trackedValues.includes(condition.trackingValue)) {
+                  actualCount++;
+                }
+                // Count out-of-control misses for warning logic
+                if (trackingInfoForDay.isOutOfControlMiss && trackingInfoForDay.trackedValues.length === 0) {
+                  outOfControlMissesUsedInPeriod++;
+                }
               }
             });
 
@@ -83,6 +99,10 @@ const FineCard: React.FC<FineCardProps> = ({
 
             // Warning logic for current period
             if (isCurrentPeriod) {
+              const totalUsedMissesForHabitYear = yearlyOutOfControlMissCounts[habit.id]?.used_count || 0;
+              const allowedYearlyMisses = habit.allowedOutOfControlMisses || 0;
+
+              // Warning for approaching fine limit
               if (actualCount === condition.count && condition.count > 0) {
                 currentWarnings.push(
                   `Warning: You have already tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${periodType.slice(0, -2)}. Any further tracking of this value will incur a fine.`
@@ -91,6 +111,19 @@ const FineCard: React.FC<FineCardProps> = ({
                 currentWarnings.push(
                   `Heads up: You have tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${periodType.slice(0, -2)}. One more tracking of this value will incur a fine.`
                 );
+              }
+
+              // Warning for approaching yearly out-of-control miss limit
+              if (allowedYearlyMisses > 0) {
+                if (totalUsedMissesForHabitYear === allowedYearlyMisses) {
+                  currentWarnings.push(
+                    `Alert: You have used all ${allowedYearlyMisses} allowed out-of-control misses for '${habit.name}' this year. Future misses will count towards fines.`
+                  );
+                } else if (totalUsedMissesForHabitYear === allowedYearlyMisses - 1) {
+                  currentWarnings.push(
+                    `Heads up: You have 1 out-of-control miss remaining for '${habit.name}' this year.`
+                  );
+                }
               }
             }
           }
@@ -101,7 +134,7 @@ const FineCard: React.FC<FineCardProps> = ({
     };
 
     calculateFinesAndWarnings();
-  }, [periodStart, periodEnd, periodType, habits, dailyTracking, finesStatus, isCurrentPeriod]);
+  }, [periodStart, periodEnd, periodType, habits, dailyTracking, finesStatus, isCurrentPeriod, yearlyOutOfControlMissCounts]);
 
   const handleStatusChange = async (fine: FineDetail, newStatus: 'paid' | 'unpaid') => { // Made async
     const updatedFine = { ...fine, status: newStatus, created_at: new Date().toISOString() }; // Update timestamp on status change

@@ -29,6 +29,7 @@ const HabitSetup: React.FC = () => {
   const [fineAmount, setFineAmount] = React.useState<number | "">("");
   const [yearlyGoalCount, setYearlyGoalCount] = React.useState<number | "">("");
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
+  const [allowedOutOfControlMisses, setAllowedOutOfControlMisses] = React.useState<number | "">(""); // New state for allowed misses
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
@@ -76,6 +77,7 @@ const HabitSetup: React.FC = () => {
     setFineAmount("");
     setYearlyGoalCount("");
     setContributingValues([]);
+    setAllowedOutOfControlMisses(""); // Reset new field
   };
 
   const addTrackingValue = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -137,6 +139,7 @@ const HabitSetup: React.FC = () => {
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
         contributingValues: contributingValues, // Stored as camelCase in JSONB
       },
+      allowed_out_of_control_misses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0, // New field
     };
 
     setIsLoading(true);
@@ -162,7 +165,7 @@ const HabitSetup: React.FC = () => {
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
-    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, created_at } = updatedHabit;
+    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, created_at } = updatedHabit;
     const updatedHabitData = {
       name,
       color,
@@ -170,6 +173,7 @@ const HabitSetup: React.FC = () => {
       frequency_conditions: frequencyConditions, // Stored as camelCase in JSONB
       fine_amount: fineAmount, // Convert to snake_case
       yearly_goal: yearlyGoal, // Stored as camelCase in JSONB
+      allowed_out_of_control_misses: allowedOutOfControlMisses, // New field
       created_at,
     };
 
@@ -249,6 +253,17 @@ const HabitSetup: React.FC = () => {
       console.error("Error deleting associated fines status:", finesDeleteError);
       showError("Failed to delete associated fines data.");
       // Continue with other deletions even if this fails
+    }
+
+    // Delete associated yearly out of control miss counts
+    const { error: missCountsDeleteError } = await supabase
+      .from('yearly_out_of_control_miss_counts')
+      .delete()
+      .eq('habit_id', idToDelete);
+
+    if (missCountsDeleteError) {
+      console.error("Error deleting associated yearly out of control miss counts:", missCountsDeleteError);
+      showError("Failed to delete associated out of control miss data.");
     }
 
     // Remove habit from local state
@@ -398,6 +413,20 @@ const HabitSetup: React.FC = () => {
             value={fineAmount}
             onChange={(e) => setFineAmount(e.target.value === "" ? "" : Number(e.target.value))}
           />
+        </div>
+
+        {/* Allowed Out-of-Control Misses Section */}
+        <div className="w-full max-w-sm">
+          <label htmlFor="allowed-misses" className="block text-sm font-medium text-gray-700 text-left">Allowed Yearly Out-of-Control Misses</label>
+          <input
+            type="number"
+            id="allowed-misses"
+            placeholder="e.g., 3"
+            className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
+            value={allowedOutOfControlMisses}
+            onChange={(e) => setAllowedOutOfControlMisses(e.target.value === "" ? "" : Number(e.target.value))}
+          />
+          <p className="text-xs text-gray-500 mt-1 text-left">Number of times you can mark a miss as "out of control" per year without incurring a fine.</p>
         </div>
 
         {/* Yearly Goals Section */}

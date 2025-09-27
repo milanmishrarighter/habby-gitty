@@ -20,7 +20,7 @@ const RecordedEntries: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null);
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: string[] } }>({});
+  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
 
   // Function to load entries, habits, and daily tracking
   const loadAllData = React.useCallback(async () => {
@@ -59,12 +59,15 @@ const RecordedEntries: React.FC = () => {
       console.error("Error fetching daily tracking:", trackingError);
       setDailyTracking({});
     } else {
-      const newDailyTracking: { [date: string]: { [habitId: string]: string[] } } = {};
+      const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = {};
       trackingData.forEach(record => {
         if (!newDailyTracking[record.date]) {
           newDailyTracking[record.date] = {};
         }
-        newDailyTracking[record.date][record.habit_id] = record.tracked_values;
+        newDailyTracking[record.date][record.habit_id] = {
+          trackedValues: record.tracked_values,
+          isOutOfControlMiss: record.is_out_of_control_miss,
+        };
       });
       setDailyTracking(newDailyTracking);
     }
@@ -175,14 +178,22 @@ const RecordedEntries: React.FC = () => {
                     <div className="mt-4 pt-2 border-t border-gray-100 text-left">
                       <h4 className="font-semibold text-gray-800 text-sm mb-1">Habits Tracked:</h4>
                       <ul className="list-none space-y-1">
-                        {Object.entries(habitsTrackedForDay).map(([habitId, trackedValues]) => {
+                        {Object.entries(habitsTrackedForDay).map(([habitId, trackingInfo]) => {
                           const habit = habits.find(h => h.id === habitId);
-                          if (habit && trackedValues.length > 0) {
+                          if (habit && trackingInfo.trackedValues.length > 0) {
                             return (
                               <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
                                 <span className="font-medium">{habit.name}:</span>
-                                <span>{trackedValues[0]}</span>
+                                <span>{trackingInfo.trackedValues[0]}</span>
+                              </li>
+                            );
+                          } else if (habit && trackingInfo.isOutOfControlMiss) {
+                            return (
+                              <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700 italic">
+                                <div className="w-3 h-3 rounded-full bg-gray-400"></div>
+                                <span className="font-medium">{habit.name}:</span>
+                                <span>Out-of-Control Miss</span>
                               </li>
                             );
                           }

@@ -43,6 +43,10 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
         <p className="mt-2 text-sm text-red-600 font-bold">Fine: ₹{habit.fineAmount}</p>
       )}
 
+      {habit.allowedOutOfControlMisses > 0 && (
+        <p className="mt-2 text-sm text-gray-600">Allowed Out-of-Control Misses (Yearly): {habit.allowedOutOfControlMisses}</p>
+      )}
+
       {(habit.yearlyGoal && habit.yearlyGoal.count > 0) && (
         <div className="mt-2 text-sm text-gray-600">
           <h4 className="font-semibold mb-1">Yearly Goal: {habit.yearlyGoal.count}</h4>
