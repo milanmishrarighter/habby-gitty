@@ -303,7 +303,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     setActiveTab("setup");
   };
 
-  console.log("DailyEntries: Current habits state for rendering:", habits); // Log state before rendering
+  // Moved console.log into a useEffect
+  React.useEffect(() => {
+    console.log("DailyEntries: Current habits state for rendering (from useEffect):", habits);
+  }, [habits]);
 
   return (
     <div id="daily" className="tab-content text-center">

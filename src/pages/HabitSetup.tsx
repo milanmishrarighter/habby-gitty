@@ -57,7 +57,6 @@ const HabitSetup: React.FC = () => {
     } else {
       console.log("HabitSetup: Supabase raw habits data:", data); // Log raw data
       const mappedHabits = (data || []).map(mapSupabaseHabitToHabit);
-      console.log("HabitSetup: Mapped habits data:", mappedHabits); // Log mapped data
       setHabits(mappedHabits);
     }
     setIsLoading(false);
@@ -67,6 +66,11 @@ const HabitSetup: React.FC = () => {
   React.useEffect(() => {
     fetchHabits();
   }, [fetchHabits]);
+
+  // Moved console.log into a useEffect
+  React.useEffect(() => {
+    console.log("HabitSetup: Current habits state for rendering (from useEffect):", habits);
+  }, [habits]);
 
   const resetForm = () => {
     setHabitName("");
@@ -291,8 +295,6 @@ const HabitSetup: React.FC = () => {
       </div>
     );
   }
-
-  console.log("HabitSetup: Current habits state for rendering:", habits); // Log state before rendering
 
   return (
     <div id="setup" className="tab-content text-center">
