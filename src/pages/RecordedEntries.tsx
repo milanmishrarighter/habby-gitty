@@ -267,7 +267,7 @@ const RecordedEntries: React.FC = () => {
       />
 
       <DeleteConfirmationModal
-        isOpen={isDeleteModal}
+        isOpen={isDeleteModalOpen} {/* Corrected from isDeleteModal */}
         onClose={() => setIsDeleteModal(false)}
         onConfirm={confirmDelete}
         itemToDeleteName={entryToDelete ? `the entry for ${entryToDelete.date}` : "this entry"}
