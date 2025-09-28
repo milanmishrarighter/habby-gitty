@@ -17,7 +17,7 @@ const RecordedEntries: React.FC = () => {
   const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false); // Corrected setter name here
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null);
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
@@ -80,7 +80,7 @@ const RecordedEntries: React.FC = () => {
 
   const handleDeleteClick = (id: string, date: string) => {
     setEntryToDelete({ id, date });
-    setIsDeleteModalOpen(true); // Corrected setter name here
+    setIsDeleteModalOpen(true);
   };
 
   const confirmDelete = async () => {
@@ -89,7 +89,7 @@ const RecordedEntries: React.FC = () => {
     const { id: idToDelete, date: dateToDelete } = entryToDelete;
     const currentYear = new Date(dateToDelete).getFullYear().toString();
 
-    // 1. Fetch daily habit tracking records for the date to identify out-of-control misses
+    // 1. Fetch daily habit tracking records for the date to identify out-of-control misses and contributing values
     const { data: trackingRecordsForDate, error: fetchTrackingError } = await supabase
       .from('daily_habit_tracking')
       .select('*')
@@ -100,10 +100,9 @@ const RecordedEntries: React.FC = () => {
       showError("Failed to retrieve habit tracking for deletion.");
       // Continue with other deletions even if this fails
     } else {
-      // 2. Identify and decrement yearly out-of-control miss counts
       for (const record of trackingRecordsForDate || []) {
+        // Decrement yearly out-of-control miss counts if applicable
         if (record.is_out_of_control_miss) {
-          // Fetch current miss count for the habit and year
           const { data: currentMissCountData, error: fetchMissCountError } = await supabase
             .from('yearly_out_of_control_miss_counts')
             .select('used_count')
@@ -111,7 +110,7 @@ const RecordedEntries: React.FC = () => {
             .eq('year', currentYear)
             .single();
 
-          if (fetchMissCountError && fetchMissCountError.code !== 'PGRST116') { // PGRST116 means no rows found
+          if (fetchMissCountError && fetchMissCountError.code !== 'PGRST116') {
             console.error("Error fetching yearly miss count for decrement:", fetchMissCountError);
             showError("Failed to update out-of-control miss count.");
           } else if (currentMissCountData) {
@@ -125,6 +124,37 @@ const RecordedEntries: React.FC = () => {
             if (updateMissCountError) {
               console.error("Error decrementing yearly miss count:", updateMissCountError);
               showError("Failed to decrement out-of-control miss count.");
+            }
+          }
+        }
+
+        // Decrement yearly habit progress if tracked values contributed to a goal
+        const habit = habits.find(h => h.id === record.habit_id);
+        if (habit && habit.yearlyGoal && habit.yearlyGoal.contributingValues && record.tracked_values.length > 0) {
+          const trackedValue = record.tracked_values[0]; // Assuming only one tracked value per day per habit
+          if (habit.yearlyGoal.contributingValues.includes(trackedValue)) {
+            const { data: currentProgressData, error: fetchProgressError } = await supabase
+              .from('yearly_habit_progress')
+              .select('progress_count')
+              .eq('habit_id', record.habit_id)
+              .eq('year', currentYear)
+              .single();
+
+            if (fetchProgressError && fetchProgressError.code !== 'PGRST116') {
+              console.error("Error fetching yearly progress for decrement:", fetchProgressError);
+              showError("Failed to update yearly habit progress.");
+            } else if (currentProgressData) {
+              const newProgressCount = Math.max(0, currentProgressData.progress_count - 1);
+              const { error: updateProgressError } = await supabase
+                .from('yearly_habit_progress')
+                .update({ progress_count: newProgressCount })
+                .eq('habit_id', record.habit_id)
+                .eq('year', currentYear);
+
+              if (updateProgressError) {
+                console.error("Error decrementing yearly progress:", updateProgressError);
+                showError("Failed to decrement yearly habit progress.");
+              }
             }
           }
         }
@@ -167,7 +197,7 @@ const RecordedEntries: React.FC = () => {
 
     showSuccess("Entry and associated habit tracking deleted successfully!");
     setEntryToDelete(null);
-    setIsDeleteModalOpen(false); // Corrected setter name here
+    setIsDeleteModalOpen(false);
   };
 
   const handleEditEntry = (entry: DailyEntry) => {
@@ -268,7 +298,7 @@ const RecordedEntries: React.FC = () => {
 
       <DeleteConfirmationModal
         isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)} // Corrected setter name here
+        onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={confirmDelete}
         itemToDeleteName={entryToDelete ? `the entry for ${entryToDelete.date}` : "this entry"}
       />
