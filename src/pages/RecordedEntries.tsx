@@ -306,7 +306,7 @@ const RecordedEntries: React.FC = () => {
             .eq('year', currentYear)
             .single();
 
-          if (fetchMissCountError && fetchMissCountError.code !== 'PGRST116') {
+          if (fetchMissCountError && fetchMissMissCountError.code !== 'PGRST116') {
             console.error("Error fetching yearly miss count for decrement:", fetchMissCountError);
             showError("Failed to update out-of-control miss count.");
           } else if (currentMissCountData) {
@@ -319,7 +319,7 @@ const RecordedEntries: React.FC = () => {
 
             if (updateMissCountError) {
               console.error("Error decrementing yearly miss count:", updateMissCountError);
-              showError("Failed to decrement out-of-control miss count.");
+              showError("Failed to decrement yearly miss count.");
             }
           }
         }
@@ -476,6 +476,7 @@ const RecordedEntries: React.FC = () => {
                     checked={!!selectedHabitFilters[habit.id]}
                     onCheckedChange={(checked) => handleHabitToggle(habit.id, habit.name, habit.color, checked)}
                     disabled={!selectedHabitFilters[habit.id] && Object.keys(selectedHabitFilters).length >= 3}
+                    onSelect={(e) => e.preventDefault()} // Prevent closing on click
                   >
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
@@ -492,6 +493,7 @@ const RecordedEntries: React.FC = () => {
                             key={value}
                             checked={selectedHabitFilters[habit.id]?.selectedTrackingValues.includes(value)}
                             onCheckedChange={(checked) => handleTrackingValueSelect(habit.id, value, checked)}
+                            onSelect={(e) => e.preventDefault()} // Prevent closing on click
                           >
                             {value}
                           </DropdownMenuCheckboxItem>
@@ -503,6 +505,7 @@ const RecordedEntries: React.FC = () => {
                         <DropdownMenuCheckboxItem
                           checked={selectedHabitFilters[habit.id]?.includeOutOfControlMiss}
                           onCheckedChange={(checked) => handleOutOfControlMissSelect(habit.id, checked)}
+                          onSelect={(e) => e.preventDefault()} // Prevent closing on click
                         >
                           Out-of-Control Miss
                         </DropdownMenuCheckboxItem>
