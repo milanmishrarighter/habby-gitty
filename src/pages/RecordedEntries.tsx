@@ -6,15 +6,31 @@ import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking"; // Import new types
+import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
-import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
+
+// Shadcn UI components for filters
+import { CalendarIcon, XCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateRange } from "react-day-picker";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const RecordedEntries: React.FC = () => {
-  const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]);
+  const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]); // All entries fetched
+  const [displayEntries, setDisplayEntries] = React.useState<DailyEntry[]>([]); // Entries currently displayed after filtering
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
@@ -22,23 +38,15 @@ const RecordedEntries: React.FC = () => {
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
 
-  // Function to load entries, habits, and daily tracking
-  const loadAllData = React.useCallback(async () => {
-    // Fetch daily entries from Supabase
-    const { data: entriesData, error: entriesError } = await supabase
-      .from('daily_entries')
-      .select('*')
-      .order('date', { ascending: false });
+  // Filter states
+  const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
+  const [selectedHabitIds, setSelectedHabitIds] = React.useState<string[]>([]);
+  const [isLoadingFilters, setIsLoadingFilters] = React.useState(false);
 
-    if (entriesError) {
-      console.error("Error fetching daily entries:", entriesError);
-      showError("Failed to load daily entries.");
-      setDailyEntries([]);
-    } else {
-      setDailyEntries(entriesData as DailyEntry[]);
-    }
-
-    // Fetch habits from Supabase
+  // Function to load entries, habits, and daily tracking based on filters
+  const loadAllData = React.useCallback(async (filters?: { dateRange?: DateRange, habitIds?: string[] }) => {
+    setIsLoadingFilters(true);
+    // Fetch habits from Supabase (always needed for display and deletion logic)
     const { data: habitsData, error: habitsError } = await supabase
       .from('habits')
       .select('*');
@@ -46,14 +54,86 @@ const RecordedEntries: React.FC = () => {
     if (habitsError) {
       console.error("Error fetching habits for RecordedEntries:", habitsError);
       showError("Failed to load habits.");
+      setHabits([]);
     } else {
-      setHabits((habitsData || []).map(mapSupabaseHabitToHabit)); // Apply mapping
+      setHabits((habitsData || []).map(mapSupabaseHabitToHabit));
     }
 
-    // Fetch all daily habit tracking records
-    const { data: trackingData, error: trackingError } = await supabase
-      .from('daily_habit_tracking')
-      .select('*');
+    let entryDatesToFetch: string[] | undefined = undefined;
+
+    // If habit filters are applied, first find relevant dates from daily_habit_tracking
+    if (filters?.habitIds && filters.habitIds.length > 0) {
+      let trackingDatesQuery = supabase
+        .from('daily_habit_tracking')
+        .select('date')
+        .in('habit_id', filters.habitIds);
+
+      if (filters.dateRange?.from) {
+        trackingDatesQuery = trackingDatesQuery.gte('date', format(filters.dateRange.from, 'yyyy-MM-dd'));
+      }
+      if (filters.dateRange?.to) {
+        trackingDatesQuery = trackingDatesQuery.lte('date', format(filters.dateRange.to, 'yyyy-MM-dd'));
+      }
+
+      const { data: filteredTrackingDates, error: filteredTrackingError } = await trackingDatesQuery;
+
+      if (filteredTrackingError) {
+        console.error("Error fetching filtered tracking dates:", filteredTrackingError);
+        showError("Failed to filter entries by habits.");
+        setDisplayEntries([]);
+        setDailyTracking({});
+        setIsLoadingFilters(false);
+        return;
+      }
+      entryDatesToFetch = Array.from(new Set(filteredTrackingDates.map(t => t.date)));
+      if (entryDatesToFetch.length === 0) {
+        // No entries match the habit filter for the given date range
+        setDisplayEntries([]);
+        setDailyTracking({});
+        setIsLoadingFilters(false);
+        return;
+      }
+    }
+
+    let entryQuery = supabase.from('daily_entries').select('*');
+    if (entryDatesToFetch) {
+      entryQuery = entryQuery.in('date', entryDatesToFetch);
+    } else { // Only apply date range if no habit filter or no dates found by habit filter
+      if (filters?.dateRange?.from) {
+        entryQuery = entryQuery.gte('date', format(filters.dateRange.from, 'yyyy-MM-dd'));
+      }
+      if (filters?.dateRange?.to) {
+        entryQuery = entryQuery.lte('date', format(filters.dateRange.to, 'yyyy-MM-dd'));
+      }
+    }
+
+    const { data: entriesData, error: entriesError } = await entryQuery.order('date', { ascending: false });
+
+    if (entriesError) {
+      console.error("Error fetching daily entries:", entriesError);
+      showError("Failed to load daily entries.");
+      setDisplayEntries([]);
+    } else {
+      setDailyEntries(entriesData as DailyEntry[]); // Keep all fetched entries in case filters are cleared
+      setDisplayEntries(entriesData as DailyEntry[]); // Display the filtered ones
+    }
+
+    // Fetch daily habit tracking records for the *displayed* entries
+    let allTrackingQuery = supabase.from('daily_habit_tracking').select('*');
+    if (entriesData && entriesData.length > 0) {
+      const datesOfDisplayedEntries = entriesData.map(entry => entry.date);
+      allTrackingQuery = allTrackingQuery.in('date', datesOfDisplayedEntries);
+      if (filters?.habitIds && filters.habitIds.length > 0) {
+        allTrackingQuery = allTrackingQuery.in('habit_id', filters.habitIds);
+      }
+    } else {
+      // If no entries are displayed, no tracking data is needed
+      setDailyTracking({});
+      setIsLoadingFilters(false);
+      return;
+    }
+
+    const { data: trackingData, error: trackingError } = await allTrackingQuery;
 
     if (trackingError) {
       console.error("Error fetching daily tracking:", trackingError);
@@ -71,12 +151,38 @@ const RecordedEntries: React.FC = () => {
       });
       setDailyTracking(newDailyTracking);
     }
+    setIsLoadingFilters(false);
   }, []);
 
-  // Load data on component mount
+  // Load data on component mount (initial load with no filters)
   React.useEffect(() => {
     loadAllData();
   }, [loadAllData]);
+
+  const applyFilters = () => {
+    loadAllData({ dateRange, habitIds: selectedHabitIds });
+  };
+
+  const clearFilters = () => {
+    setDateRange(undefined);
+    setSelectedHabitIds([]);
+    loadAllData(); // Load all data without filters
+  };
+
+  const handleHabitSelect = (habitId: string, checked: boolean) => {
+    setSelectedHabitIds((prev) => {
+      if (checked) {
+        if (prev.length < 3) {
+          return [...prev, habitId];
+        } else {
+          showError("You can select a maximum of 3 habits.");
+          return prev; // Don't add if already 3 selected
+        }
+      } else {
+        return prev.filter((id) => id !== habitId);
+      }
+    });
+  };
 
   const handleDeleteClick = (id: string, date: string) => {
     setEntryToDelete({ id, date });
@@ -185,19 +291,11 @@ const RecordedEntries: React.FC = () => {
       // Continue with other deletions even if this fails
     }
 
-    // Remove entry from local state
-    setDailyEntries(prev => prev.filter(entry => entry.id !== idToDelete));
-
-    // Remove daily tracking for this date from local state
-    setDailyTracking(prev => {
-      const updatedDailyTracking = { ...prev };
-      delete updatedDailyTracking[dateToDelete];
-      return updatedDailyTracking;
-    });
-
+    // Reload all data to reflect changes and re-apply current filters
     showSuccess("Entry and associated habit tracking deleted successfully!");
     setEntryToDelete(null);
     setIsDeleteModalOpen(false);
+    applyFilters(); // Re-apply current filters after deletion
   };
 
   const handleEditEntry = (entry: DailyEntry) => {
@@ -216,10 +314,9 @@ const RecordedEntries: React.FC = () => {
       console.error("Error updating daily entry:", error);
       showError("Failed to update daily entry.");
     } else {
-      setDailyEntries(prev => prev.map(entry =>
-        entry.id === updatedEntry.id ? updatedEntry : entry
-      ));
+      // Reload all data to reflect changes and re-apply current filters
       showSuccess("Entry updated successfully!");
+      applyFilters(); // Re-apply current filters after save
     }
   };
 
@@ -228,13 +325,102 @@ const RecordedEntries: React.FC = () => {
       <h2 className="text-2xl font-bold text-gray-800 mb-4">Recorded Entries</h2>
       <p className="text-gray-600 mb-6">A history of all your past journal entries and habit tracking records.</p>
 
-      {dailyEntries.length === 0 ? (
+      {/* Filter Section */}
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8 p-4 bg-gray-50 rounded-lg shadow-sm">
+        {/* Date Range Picker */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              id="date-range-picker"
+              variant={"outline"}
+              className={cn(
+                "w-full sm:w-[280px] justify-start text-left font-normal",
+                !dateRange && "text-muted-foreground"
+              )}
+            >
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {dateRange?.from ? (
+                dateRange.to ? (
+                  <>
+                    {format(dateRange.from, "LLL dd, y")} -{" "}
+                    {format(dateRange.to, "LLL dd, y")}
+                  </>
+                ) : (
+                  format(dateRange.from, "LLL dd, y")
+                )
+              ) : (
+                <span>Pick a date range</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              initialFocus
+              mode="range"
+              defaultMonth={dateRange?.from}
+              selected={dateRange}
+              onSelect={setDateRange}
+              numberOfMonths={2}
+            />
+          </PopoverContent>
+        </Popover>
+
+        {/* Habit Multi-Select */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="w-full sm:w-[280px] justify-start text-left font-normal">
+              {selectedHabitIds.length > 0
+                ? `${selectedHabitIds.length} Habit${selectedHabitIds.length > 1 ? 's' : ''} Selected`
+                : "Select Habits (Max 3)"}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-[280px]">
+            <DropdownMenuLabel>Select Habits</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {habits.length === 0 ? (
+              <DropdownMenuLabel className="text-gray-500 italic">No habits available</DropdownMenuLabel>
+            ) : (
+              habits.map((habit) => (
+                <DropdownMenuCheckboxItem
+                  key={habit.id}
+                  checked={selectedHabitIds.includes(habit.id)}
+                  onCheckedChange={(checked) => handleHabitSelect(habit.id, checked)}
+                  disabled={!selectedHabitIds.includes(habit.id) && selectedHabitIds.length >= 3}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
+                    {habit.name}
+                  </div>
+                </DropdownMenuCheckboxItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Filter Buttons */}
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button onClick={applyFilters} disabled={isLoadingFilters}>
+            {isLoadingFilters ? "Applying..." : "Apply Filters"}
+          </Button>
+          <Button variant="outline" onClick={clearFilters} disabled={isLoadingFilters}>
+            <XCircle className="mr-2 h-4 w-4" />
+            Clear
+          </Button>
+        </div>
+      </div>
+
+      {isLoadingFilters ? (
+        <div className="text-center py-8">
+          <p className="text-lg text-gray-600">Loading entries...</p>
+        </div>
+      ) : displayEntries.length === 0 ? (
         <div className="dotted-border-container">
-          <p className="text-lg">No entries recorded yet. Start a new entry in the "Daily Entries" tab!</p>
+          <p className="text-lg">No entries found matching your filters.</p>
+          <Button variant="link" onClick={clearFilters} className="mt-2">Clear filters to see all entries</Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {dailyEntries.map((entry) => {
+          {displayEntries.map((entry) => {
             const habitsTrackedForDay = dailyTracking[entry.date];
             const formattedDate = format(new Date(entry.date), 'do MMMM yyyy');
             return (
