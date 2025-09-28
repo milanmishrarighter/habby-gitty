@@ -6,7 +6,7 @@ import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
 import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking";
@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 
 // Shadcn UI components for filters
-import { CalendarIcon, XCircle } from "lucide-react";
+import { CalendarIcon, XCircle, Check } from "lucide-react"; // Added Check icon
 import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -28,6 +28,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+interface HabitFilterState {
+  [habitId: string]: {
+    name: string;
+    color: string;
+    selectedTrackingValues: string[];
+    includeOutOfControlMiss: boolean;
+  };
+}
+
 const RecordedEntries: React.FC = () => {
   const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]); // All entries fetched
   const [displayEntries, setDisplayEntries] = React.useState<DailyEntry[]>([]); // Entries currently displayed after filtering
@@ -35,18 +44,18 @@ const RecordedEntries: React.FC = () => {
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null);
-  const [habits, setHabits] = React.useState<Habit[]>([]);
+  const [allHabits, setAllHabits] = React.useState<Habit[]>([]); // Renamed to avoid conflict with filter state
   const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
 
   // Filter states
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
-  const [selectedHabitIds, setSelectedHabitIds] = React.useState<string[]>([]);
+  const [selectedHabitFilters, setSelectedHabitFilters] = React.useState<HabitFilterState>({});
   const [isLoadingFilters, setIsLoadingFilters] = React.useState(false);
 
   // Function to load entries, habits, and daily tracking based on filters
-  const loadAllData = React.useCallback(async (filters?: { dateRange?: DateRange, habitIds?: string[] }) => {
+  const loadAllData = React.useCallback(async (filters?: { dateRange?: DateRange, selectedHabitFilters?: HabitFilterState }) => {
     setIsLoadingFilters(true);
-    // Fetch habits from Supabase (always needed for display and deletion logic)
+    // Fetch all habits from Supabase (always needed for display and deletion logic)
     const { data: habitsData, error: habitsError } = await supabase
       .from('habits')
       .select('*');
@@ -54,24 +63,50 @@ const RecordedEntries: React.FC = () => {
     if (habitsError) {
       console.error("Error fetching habits for RecordedEntries:", habitsError);
       showError("Failed to load habits.");
-      setHabits([]);
+      setAllHabits([]);
     } else {
-      setHabits((habitsData || []).map(mapSupabaseHabitToHabit));
+      setAllHabits((habitsData || []).map(mapSupabaseHabitToHabit));
     }
 
     let entryDatesToFetch: string[] | undefined = undefined;
+    const filterHabitIds = Object.keys(filters?.selectedHabitFilters || {});
 
-    // If habit filters are applied, first find relevant dates from daily_habit_tracking
-    if (filters?.habitIds && filters.habitIds.length > 0) {
+    if (filterHabitIds.length > 0) {
       let trackingDatesQuery = supabase
         .from('daily_habit_tracking')
-        .select('date')
-        .in('habit_id', filters.habitIds);
+        .select('date'); // Only need date for initial filtering
 
-      if (filters.dateRange?.from) {
+      const globalOrConditions: string[] = [];
+
+      for (const habitId of filterHabitIds) {
+        const habitFilter = filters.selectedHabitFilters[habitId];
+        const habitSpecificValueConditions: string[] = [];
+
+        if (habitFilter.selectedTrackingValues.length > 0) {
+          // Supabase `cs` (contains) operator for array
+          habitSpecificValueConditions.push(`tracked_values.cs.{${habitFilter.selectedTrackingValues.map(v => `"${v}"`).join(',')}}`);
+        }
+        if (habitFilter.includeOutOfControlMiss) {
+          habitSpecificValueConditions.push(`is_out_of_control_miss.eq.true`);
+        }
+
+        if (habitSpecificValueConditions.length > 0) {
+          // Combine habit_id with its specific value/miss conditions using AND
+          globalOrConditions.push(`and(habit_id.eq.${habitId},or(${habitSpecificValueConditions.join(',')}))`);
+        } else {
+          // If habit is selected but no specific values/misses, just filter by habit_id
+          globalOrConditions.push(`habit_id.eq.${habitId}`);
+        }
+      }
+
+      if (globalOrConditions.length > 0) {
+        trackingDatesQuery = trackingDatesQuery.or(globalOrConditions.join(','));
+      }
+
+      if (filters?.dateRange?.from) {
         trackingDatesQuery = trackingDatesQuery.gte('date', format(filters.dateRange.from, 'yyyy-MM-dd'));
       }
-      if (filters.dateRange?.to) {
+      if (filters?.dateRange?.to) {
         trackingDatesQuery = trackingDatesQuery.lte('date', format(filters.dateRange.to, 'yyyy-MM-dd'));
       }
 
@@ -79,15 +114,15 @@ const RecordedEntries: React.FC = () => {
 
       if (filteredTrackingError) {
         console.error("Error fetching filtered tracking dates:", filteredTrackingError);
-        showError("Failed to filter entries by habits.");
+        showError("Failed to filter entries by habits and values.");
         setDisplayEntries([]);
         setDailyTracking({});
         setIsLoadingFilters(false);
         return;
       }
+
       entryDatesToFetch = Array.from(new Set(filteredTrackingDates.map(t => t.date)));
       if (entryDatesToFetch.length === 0) {
-        // No entries match the habit filter for the given date range
         setDisplayEntries([]);
         setDailyTracking({});
         setIsLoadingFilters(false);
@@ -123,8 +158,31 @@ const RecordedEntries: React.FC = () => {
     if (entriesData && entriesData.length > 0) {
       const datesOfDisplayedEntries = entriesData.map(entry => entry.date);
       allTrackingQuery = allTrackingQuery.in('date', datesOfDisplayedEntries);
-      if (filters?.habitIds && filters.habitIds.length > 0) {
-        allTrackingQuery = allTrackingQuery.in('habit_id', filters.habitIds);
+
+      // Apply habit and value filters to the tracking data itself
+      const filterHabitIdsForTracking = Object.keys(filters?.selectedHabitFilters || {});
+      if (filterHabitIdsForTracking.length > 0) {
+        const globalOrConditionsForTracking: string[] = [];
+        for (const habitId of filterHabitIdsForTracking) {
+          const habitFilter = filters.selectedHabitFilters[habitId];
+          const habitSpecificValueConditions: string[] = [];
+
+          if (habitFilter.selectedTrackingValues.length > 0) {
+            habitSpecificValueConditions.push(`tracked_values.cs.{${habitFilter.selectedTrackingValues.map(v => `"${v}"`).join(',')}}`);
+          }
+          if (habitFilter.includeOutOfControlMiss) {
+            habitSpecificValueConditions.push(`is_out_of_control_miss.eq.true`);
+          }
+
+          if (habitSpecificValueConditions.length > 0) {
+            globalOrConditionsForTracking.push(`and(habit_id.eq.${habitId},or(${habitSpecificValueConditions.join(',')}))`);
+          } else {
+            globalOrConditionsForTracking.push(`habit_id.eq.${habitId}`);
+          }
+        }
+        if (globalOrConditionsForTracking.length > 0) {
+          allTrackingQuery = allTrackingQuery.or(globalOrConditionsForTracking.join(','));
+        }
       }
     } else {
       // If no entries are displayed, no tracking data is needed
@@ -160,27 +218,59 @@ const RecordedEntries: React.FC = () => {
   }, [loadAllData]);
 
   const applyFilters = () => {
-    loadAllData({ dateRange, habitIds: selectedHabitIds });
+    loadAllData({ dateRange, selectedHabitFilters });
   };
 
   const clearFilters = () => {
     setDateRange(undefined);
-    setSelectedHabitIds([]);
+    setSelectedHabitFilters({});
     loadAllData(); // Load all data without filters
   };
 
-  const handleHabitSelect = (habitId: string, checked: boolean) => {
-    setSelectedHabitIds((prev) => {
+  const handleHabitToggle = (habitId: string, habitName: string, habitColor: string, checked: boolean) => {
+    setSelectedHabitFilters((prev) => {
+      const newFilters = { ...prev };
       if (checked) {
-        if (prev.length < 3) {
-          return [...prev, habitId];
-        } else {
+        if (Object.keys(newFilters).length >= 3) {
           showError("You can select a maximum of 3 habits.");
-          return prev; // Don't add if already 3 selected
+          return prev;
         }
+        newFilters[habitId] = {
+          name: habitName,
+          color: habitColor,
+          selectedTrackingValues: [],
+          includeOutOfControlMiss: false,
+        };
       } else {
-        return prev.filter((id) => id !== habitId);
+        delete newFilters[habitId];
       }
+      return newFilters;
+    });
+  };
+
+  const handleTrackingValueSelect = (habitId: string, value: string, checked: boolean) => {
+    setSelectedHabitFilters((prev) => {
+      const newFilters = { ...prev };
+      if (newFilters[habitId]) {
+        if (checked) {
+          newFilters[habitId].selectedTrackingValues = [...newFilters[habitId].selectedTrackingValues, value];
+        } else {
+          newFilters[habitId].selectedTrackingValues = newFilters[habitId].selectedTrackingValues.filter(
+            (v) => v !== value
+          );
+        }
+      }
+      return newFilters;
+    });
+  };
+
+  const handleOutOfControlMissSelect = (habitId: string, checked: boolean) => {
+    setSelectedHabitFilters((prev) => {
+      const newFilters = { ...prev };
+      if (newFilters[habitId]) {
+        newFilters[habitId].includeOutOfControlMiss = checked;
+      }
+      return newFilters;
     });
   };
 
@@ -235,7 +325,7 @@ const RecordedEntries: React.FC = () => {
         }
 
         // Decrement yearly habit progress if tracked values contributed to a goal
-        const habit = habits.find(h => h.id === record.habit_id);
+        const habit = allHabits.find(h => h.id === record.habit_id); // Use allHabits
         if (habit && habit.yearlyGoal && habit.yearlyGoal.contributingValues && record.tracked_values.length > 0) {
           const trackedValue = record.tracked_values[0]; // Assuming only one tracked value per day per habit
           if (habit.yearlyGoal.contributingValues.includes(trackedValue)) {
@@ -365,33 +455,62 @@ const RecordedEntries: React.FC = () => {
           </PopoverContent>
         </Popover>
 
-        {/* Habit Multi-Select */}
+        {/* Habit Multi-Select with Tracking Values */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="w-full sm:w-[280px] justify-start text-left font-normal">
-              {selectedHabitIds.length > 0
-                ? `${selectedHabitIds.length} Habit${selectedHabitIds.length > 1 ? 's' : ''} Selected`
-                : "Select Habits (Max 3)"}
+              {Object.keys(selectedHabitFilters).length > 0
+                ? `${Object.keys(selectedHabitFilters).length} Habit${Object.keys(selectedHabitFilters).length > 1 ? 's' : ''} Selected`
+                : "Select Habits & Values (Max 3 Habits)"}
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-[280px]">
-            <DropdownMenuLabel>Select Habits</DropdownMenuLabel>
+          <DropdownMenuContent className="w-[300px] max-h-[400px] overflow-y-auto">
+            <DropdownMenuLabel>Filter by Habits & Values</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {habits.length === 0 ? (
+            {allHabits.length === 0 ? (
               <DropdownMenuLabel className="text-gray-500 italic">No habits available</DropdownMenuLabel>
             ) : (
-              habits.map((habit) => (
-                <DropdownMenuCheckboxItem
-                  key={habit.id}
-                  checked={selectedHabitIds.includes(habit.id)}
-                  onCheckedChange={(checked) => handleHabitSelect(habit.id, checked)}
-                  disabled={!selectedHabitIds.includes(habit.id) && selectedHabitIds.length >= 3}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
-                    {habit.name}
-                  </div>
-                </DropdownMenuCheckboxItem>
+              allHabits.map((habit) => (
+                <React.Fragment key={habit.id}>
+                  <DropdownMenuCheckboxItem
+                    checked={!!selectedHabitFilters[habit.id]}
+                    onCheckedChange={(checked) => handleHabitToggle(habit.id, habit.name, habit.color, checked)}
+                    disabled={!selectedHabitFilters[habit.id] && Object.keys(selectedHabitFilters).length >= 3}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
+                      {habit.name}
+                      {selectedHabitFilters[habit.id] && <Check className="ml-auto h-4 w-4" />}
+                    </div>
+                  </DropdownMenuCheckboxItem>
+                  {selectedHabitFilters[habit.id] && (
+                    <div className="ml-6 border-l pl-2 py-1"> {/* Indent and visually separate sub-options */}
+                      <DropdownMenuLabel className="text-xs text-gray-500">Values for {habit.name}</DropdownMenuLabel>
+                      {habit.trackingValues.length > 0 ? (
+                        habit.trackingValues.map((value) => (
+                          <DropdownMenuCheckboxItem
+                            key={value}
+                            checked={selectedHabitFilters[habit.id]?.selectedTrackingValues.includes(value)}
+                            onCheckedChange={(checked) => handleTrackingValueSelect(habit.id, value, checked)}
+                          >
+                            {value}
+                          </DropdownMenuCheckboxItem>
+                        ))
+                      ) : (
+                        <DropdownMenuLabel className="text-xs text-gray-400 italic">No tracking values</DropdownMenuLabel>
+                      )}
+                      {habit.allowedOutOfControlMisses > 0 && (
+                        <DropdownMenuCheckboxItem
+                          checked={selectedHabitFilters[habit.id]?.includeOutOfControlMiss}
+                          onCheckedChange={(checked) => handleOutOfControlMissSelect(habit.id, checked)}
+                        >
+                          Out-of-Control Miss
+                        </DropdownMenuCheckboxItem>
+                      )}
+                    </div>
+                  )}
+                  <DropdownMenuSeparator />
+                </React.Fragment>
               ))
             )}
           </DropdownMenuContent>
@@ -438,7 +557,7 @@ const RecordedEntries: React.FC = () => {
                       <h4 className="font-semibold text-gray-800 text-sm mb-1">Habits Tracked:</h4>
                       <ul className="list-none space-y-1">
                         {Object.entries(habitsTrackedForDay).map(([habitId, trackingInfo]) => {
-                          const habit = habits.find(h => h.id === habitId);
+                          const habit = allHabits.find(h => h.id === habitId); // Use allHabits
                           if (habit && trackingInfo.trackedValues.length > 0) {
                             return (
                               <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
