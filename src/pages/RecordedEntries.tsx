@@ -17,7 +17,7 @@ const RecordedEntries: React.FC = () => {
   const [dailyEntries, setDailyEntries] = React.useState<DailyEntry[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
-  const [isDeleteModalOpen, setIsDeleteModal] = React.useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false); // Corrected setter name here
   const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null);
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
@@ -80,7 +80,7 @@ const RecordedEntries: React.FC = () => {
 
   const handleDeleteClick = (id: string, date: string) => {
     setEntryToDelete({ id, date });
-    setIsDeleteModal(true);
+    setIsDeleteModalOpen(true); // Corrected setter name here
   };
 
   const confirmDelete = async () => {
@@ -167,7 +167,7 @@ const RecordedEntries: React.FC = () => {
 
     showSuccess("Entry and associated habit tracking deleted successfully!");
     setEntryToDelete(null);
-    setIsDeleteModal(false);
+    setIsDeleteModalOpen(false); // Corrected setter name here
   };
 
   const handleEditEntry = (entry: DailyEntry) => {
@@ -267,8 +267,8 @@ const RecordedEntries: React.FC = () => {
       />
 
       <DeleteConfirmationModal
-        isOpen={isDeleteModalOpen} {/* Corrected from isDeleteModal */}
-        onClose={() => setIsDeleteModal(false)}
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)} // Corrected setter name here
         onConfirm={confirmDelete}
         itemToDeleteName={entryToDelete ? `the entry for ${entryToDelete.date}` : "this entry"}
       />
