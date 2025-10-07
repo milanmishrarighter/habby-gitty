@@ -33,12 +33,13 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   initialTrackedValue,
   initialIsOutOfControlMiss,
   yearlyOutOfControlMissCounts,
-  weeklyTrackingCounts, // Destructure new prop
-  monthlyTrackingCounts, // Destructure new prop
+  weeklyTrackingCounts,
+  monthlyTrackingCounts,
 }) => {
   const [selectedTrackingValue, setSelectedTrackingValue] = React.useState<string | null>(initialTrackedValue);
   const [displayYearlyProgress, setDisplayYearlyProgress] = React.useState(currentYearlyProgress);
   const [isOutOfControlMiss, setIsOutOfControlMiss] = React.useState(initialIsOutOfControlMiss);
+  const [fineOrWarningMessage, setFineOrWarningMessage] = React.useState<string | null>(null); // New state for message
 
   const currentYear = new Date(entryDate).getFullYear().toString();
   const habitMissCount = yearlyOutOfControlMissCounts[habit.id];
@@ -54,6 +55,74 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   React.useEffect(() => {
     setDisplayYearlyProgress(currentYearlyProgress);
   }, [currentYearlyProgress]);
+
+  // Function to calculate and set fine/warning message
+  const calculateFineOrWarning = React.useCallback(() => {
+    const currentWarnings: string[] = [];
+    const currentFines: string[] = [];
+
+    // Check frequency conditions for fines/warnings
+    (habit.frequencyConditions || []).forEach(condition => {
+      const periodCounts = condition.frequency === 'weekly' ? weeklyTrackingCounts : monthlyTrackingCounts;
+      const actualCount = periodCounts[condition.trackingValue] || 0;
+
+      // Fine logic: if actual count EXCEEDS the condition count
+      if (actualCount > condition.count) {
+        currentFines.push(
+          `Fine: Tracking value '${condition.trackingValue}' occurred ${actualCount} times, which exceeds the allowed ${condition.count} times this ${condition.frequency.slice(0, -2)}.`
+        );
+      }
+      // Warning logic: approaching fine limit
+      else if (actualCount === condition.count && condition.count > 0) {
+        currentWarnings.push(
+          `Warning: You have already tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${condition.frequency.slice(0, -2)}. Any further tracking of this value will incur a fine.`
+        );
+      } else if (actualCount === condition.count - 1 && condition.count > 0) {
+        currentWarnings.push(
+          `Heads up: You have tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${condition.frequency.slice(0, -2)}. One more tracking of this value will incur a fine.`
+        );
+      }
+    });
+
+    // Check out-of-control miss limit for warnings
+    if (allowedMisses > 0) {
+      // The `usedMisses` already reflects the current state after `onUpdateTracking`
+      if (usedMisses > allowedMisses) {
+        currentFines.push(
+          `Fine: You have exceeded your ${allowedMisses} allowed out-of-control misses for '${habit.name}' this year.`
+        );
+      } else if (usedMisses === allowedMisses) {
+        currentWarnings.push(
+          `Alert: You have used all ${allowedMisses} allowed out-of-control misses for '${habit.name}' this year. Future misses will count towards fines.`
+        );
+      } else if (usedMisses === allowedMisses - 1) {
+        currentWarnings.push(
+          `Heads up: You have 1 out-of-control miss remaining for '${habit.name}' this year.`
+        );
+      }
+    }
+
+    if (currentFines.length > 0) {
+      return currentFines[0]; // Prioritize fine message
+    }
+    if (currentWarnings.length > 0) {
+      return currentWarnings[0]; // Then warning message
+    }
+    return null;
+  }, [
+    habit,
+    weeklyTrackingCounts,
+    monthlyTrackingCounts,
+    yearlyOutOfControlMissCounts,
+    allowedMisses,
+    usedMisses,
+  ]);
+
+  // Recalculate message whenever relevant props or internal states change
+  React.useEffect(() => {
+    setFineOrWarningMessage(calculateFineOrWarning());
+  }, [calculateFineOrWarning, selectedTrackingValue, isOutOfControlMiss]);
+
 
   const handleValueClick = async (value: string) => {
     if (!entryDate) {
@@ -173,6 +242,13 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Fine/Warning Message Display */}
+      {fineOrWarningMessage && (
+        <div className={`mt-3 p-2 rounded-md text-sm text-left ${fineOrWarningMessage.startsWith('Fine:') ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-yellow-100 text-yellow-800 border border-yellow-300'}`}>
+          {fineOrWarningMessage}
         </div>
       )}
 
