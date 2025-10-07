@@ -189,7 +189,7 @@ const YearlyAnalytics: React.FC = () => {
               }
 
               return (
-                <Card key={habit.id} className="flex flex-col">
+                <Card key={habit.id} className="flex flex-col" style={{ backgroundColor: `${habit.color}33` }}>
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center justify-between text-lg font-semibold">
                       <span>{habit.name}</span>
