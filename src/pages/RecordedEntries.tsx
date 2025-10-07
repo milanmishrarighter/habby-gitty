@@ -12,6 +12,7 @@ import { DailyEntry } from "@/types/dailyEntry";
 import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
+import HabitTrackingDisplay from "@/components/HabitTrackingDisplay"; // Import the new component
 
 // Shadcn UI components for filters
 import { CalendarIcon, XCircle, Check } from "lucide-react"; // Added Check icon
@@ -306,7 +307,7 @@ const RecordedEntries: React.FC = () => {
             .eq('year', currentYear)
             .single();
 
-          if (fetchMissCountError && fetchMissMissCountError.code !== 'PGRST116') {
+          if (fetchMissCountError && fetchMissCountError.code !== 'PGRST116') {
             console.error("Error fetching yearly miss count for decrement:", fetchMissCountError);
             showError("Failed to update out-of-control miss count.");
           } else if (currentMissCountData) {
@@ -554,35 +555,13 @@ const RecordedEntries: React.FC = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="flex-grow">
-                  <p className="text-gray-700 text-left line-clamp-4">{entry.text}</p>
-                  {habitsTrackedForDay && Object.keys(habitsTrackedForDay).length > 0 && (
-                    <div className="mt-4 pt-2 border-t border-gray-100 text-left">
-                      <h4 className="font-semibold text-gray-800 text-sm mb-1">Habits Tracked:</h4>
-                      <ul className="list-none space-y-1">
-                        {Object.entries(habitsTrackedForDay).map(([habitId, trackingInfo]) => {
-                          const habit = allHabits.find(h => h.id === habitId); // Use allHabits
-                          if (habit && trackingInfo.trackedValues.length > 0) {
-                            return (
-                              <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
-                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
-                                <span className="font-medium">{habit.name}:</span>
-                                <span>{trackingInfo.trackedValues[0]}</span>
-                              </li>
-                            );
-                          } else if (habit && trackingInfo.isOutOfControlMiss) {
-                            return (
-                              <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700 italic">
-                                <div className="w-3 h-3 rounded-full bg-gray-400"></div>
-                                <span className="font-medium">{habit.name}:</span>
-                                <span>Out-of-Control Miss</span>
-                              </li>
-                            );
-                          }
-                          return null;
-                        })}
-                      </ul>
-                    </div>
-                  )}
+                  <p className="text-gray-700 text-left">{entry.text}</p> {/* Removed line-clamp-4 */}
+                  
+                  <HabitTrackingDisplay 
+                    habitsTrackedForDay={habitsTrackedForDay} 
+                    allHabits={allHabits} 
+                  />
+
                   <p className="text-xs text-gray-500 mt-2 text-right">
                     Last updated: {new Date(entry.timestamp).toLocaleString()}
                   </p>
