@@ -4,6 +4,7 @@ import DailyEntries from "./pages/DailyEntries";
 import RecordedEntries from "./pages/RecordedEntries";
 import Fines from "./pages/Fines";
 import HabitSetup from "./pages/HabitSetup";
+import YearlyAnalytics from "./pages/YearlyAnalytics"; // Import the new page
 import NotFound from "./pages/NotFound";
 import { Toaster as Sonner } from "@/components/ui/sonner"; // Keeping sonner for toasts
 import SupabaseConnectionStatus from "@/components/SupabaseConnectionStatus"; // Import the new component
@@ -64,6 +65,15 @@ const App = () => {
           >
             Habit Setup
           </button>
+          <button
+            data-tab="yearly-analytics"
+            className={`tab-button px-4 py-2 text-sm sm:text-base font-medium rounded-t-lg transition-all duration-300 ease-in-out ${
+              activeTab === "yearly-analytics" ? "text-blue-600 border-blue-500 active" : "text-gray-700 bg-white border-b-2 border-transparent hover:border-blue-500"
+            }`}
+            onClick={() => setActiveTab("yearly-analytics")}
+          >
+            Yearly Analytics
+          </button>
         </nav>
 
         {/* Tab Content */}
@@ -71,6 +81,7 @@ const App = () => {
         {activeTab === "recorded" && <RecordedEntries />}
         {activeTab === "fines" && <Fines />}
         {activeTab === "setup" && <HabitSetup />}
+        {activeTab === "yearly-analytics" && <YearlyAnalytics />}
       </div>
     </div>
   );
