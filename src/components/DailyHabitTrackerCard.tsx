@@ -77,7 +77,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
         currentWarnings.push(
           `Warning: You have already tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${condition.frequency.slice(0, -2)}. Any further tracking of this value will incur a fine.`
         );
-      } else if (actualCount === condition.count - 1 && condition.count > 0) {
+      } else if (actualCount === condition.count - 1 && condition.count > 0 && actualCount > 0) { // Added actualCount > 0
         currentWarnings.push(
           `Heads up: You have tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${condition.frequency.slice(0, -2)}. One more tracking of this value will incur a fine.`
         );
