@@ -12,6 +12,7 @@ import { DailyEntry } from "@/types/dailyEntry";
 import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns'; // Import date-fns utilities
 
 interface DailyEntriesProps {
   setActiveTab: (tab: string) => void;
@@ -35,6 +36,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null);
 
+  // New states for weekly and monthly tracking counts
+  const [weeklyTrackingCounts, setWeeklyTrackingCounts] = React.useState<{ [habitId: string]: { [trackingValue: string]: number } }>({});
+  const [monthlyTrackingCounts, setMonthlyTrackingCounts] = React.useState<{ [habitId: string]: { [trackingValue: string]: number } }>({});
+
   const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
   const [pendingEntry, setPendingEntry] = React.useState<Omit<DailyEntry, 'id'> | null>(null);
 
@@ -50,16 +55,14 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         console.error("Error fetching habits for DailyEntries:", error);
         showError("Failed to load habits for tracking.");
       } else {
-        console.log("DailyEntries: Supabase raw habits data:", data); // Log raw data
-        const mappedHabits = (data || []).map(mapSupabaseHabitToHabit); // Apply mapping
-        console.log("DailyEntries: Mapped habits data:", mappedHabits); // Log mapped data
+        const mappedHabits = (data || []).map(mapSupabaseHabitToHabit);
         setHabits(mappedHabits);
       }
     };
     fetchHabits();
   }, []);
 
-  // Effect to load journal entry, daily tracking, and yearly progress for selected date from Supabase
+  // Effect to load journal entry, daily tracking, yearly progress, and weekly/monthly counts for selected date from Supabase
   React.useEffect(() => {
     const fetchDataForDate = async () => {
       if (!entryDate) {
@@ -69,8 +72,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         setDailyTracking({});
         setYearlyProgress({});
         setYearlyOutOfControlMissCounts({});
+        setWeeklyTrackingCounts({});
+        setMonthlyTrackingCounts({});
         return;
       }
+
+      const selectedDate = new Date(entryDate);
+      const currentYear = selectedDate.getFullYear().toString();
 
       // Fetch daily entry
       const { data: entryData, error: entryError } = await supabase
@@ -117,7 +125,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       }
 
       // Fetch yearly progress for the current year
-      const currentYear = new Date(entryDate).getFullYear().toString();
       const { data: yearlyProgressData, error: yearlyProgressError } = await supabase
         .from('yearly_habit_progress')
         .select('*')
@@ -151,6 +158,58 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           newMissCounts[record.habit_id] = record;
         });
         setYearlyOutOfControlMissCounts(newMissCounts);
+      }
+
+      // --- Calculate Weekly and Monthly Tracking Counts ---
+      const startOfCurrentWeek = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd'); // Monday start
+      const endOfCurrentWeek = format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+      const startOfCurrentMonth = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
+      const endOfCurrentMonth = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
+
+      // Fetch all tracking records for the current week
+      const { data: weeklyRecords, error: weeklyError } = await supabase
+        .from('daily_habit_tracking')
+        .select('*')
+        .gte('date', startOfCurrentWeek)
+        .lte('date', endOfCurrentWeek);
+
+      if (weeklyError) {
+        console.error("Error fetching weekly tracking records:", weeklyError);
+        showError("Failed to load weekly tracking data.");
+      } else {
+        const calculatedWeeklyCounts: { [habitId: string]: { [trackingValue: string]: number } } = {};
+        weeklyRecords.forEach(record => {
+          if (!calculatedWeeklyCounts[record.habit_id]) {
+            calculatedWeeklyCounts[record.habit_id] = {};
+          }
+          record.tracked_values.forEach(value => {
+            calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+          });
+        });
+        setWeeklyTrackingCounts(calculatedWeeklyCounts);
+      }
+
+      // Fetch all tracking records for the current month
+      const { data: monthlyRecords, error: monthlyError } = await supabase
+        .from('daily_habit_tracking')
+        .select('*')
+        .gte('date', startOfCurrentMonth)
+        .lte('date', endOfCurrentMonth);
+
+      if (monthlyError) {
+        console.error("Error fetching monthly tracking records:", monthlyError);
+        showError("Failed to load monthly tracking data.");
+      } else {
+        const calculatedMonthlyCounts: { [habitId: string]: { [trackingValue: string]: number } } = {};
+        monthlyRecords.forEach(record => {
+          if (!calculatedMonthlyCounts[record.habit_id]) {
+            calculatedMonthlyCounts[record.habit_id] = {};
+          }
+          record.tracked_values.forEach(value => {
+            calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+          });
+        });
+        setMonthlyTrackingCounts(calculatedMonthlyCounts);
       }
     };
     fetchDataForDate();
@@ -297,16 +356,55 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         [habitId]: missCountUpsertData[0],
       }));
     }
+    // Re-fetch weekly/monthly counts after any update to ensure they are current
+    const selectedDate = new Date(date);
+    const startOfCurrentWeek = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const endOfCurrentWeek = format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const startOfCurrentMonth = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
+    const endOfCurrentMonth = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
+
+    const { data: weeklyRecords, error: weeklyError } = await supabase
+      .from('daily_habit_tracking')
+      .select('*')
+      .gte('date', startOfCurrentWeek)
+      .lte('date', endOfCurrentWeek);
+
+    if (!weeklyError) {
+      const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
+      weeklyRecords.forEach(record => {
+        if (!calculatedWeeklyCounts[record.habit_id]) {
+          calculatedWeeklyCounts[record.habit_id] = {};
+        }
+        record.tracked_values.forEach(value => {
+          calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+        });
+      });
+      setWeeklyTrackingCounts(calculatedWeeklyCounts);
+    }
+
+    const { data: monthlyRecords, error: monthlyError } = await supabase
+      .from('daily_habit_tracking')
+      .select('*')
+      .gte('date', startOfCurrentMonth)
+      .lte('date', endOfCurrentMonth);
+
+    if (!monthlyError) {
+      const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
+      monthlyRecords.forEach(record => {
+        if (!calculatedMonthlyCounts[record.habit_id]) {
+          calculatedMonthlyCounts[record.habit_id] = {};
+        }
+        record.tracked_values.forEach(value => {
+          calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+        });
+      });
+      setMonthlyTrackingCounts(calculatedMonthlyCounts);
+    }
   };
 
   const handleSetupHabitClick = () => {
     setActiveTab("setup");
   };
-
-  // Moved console.log into a useEffect
-  React.useEffect(() => {
-    console.log("DailyEntries: Current habits state for rendering (from useEffect):", habits);
-  }, [habits]);
 
   return (
     <div id="daily" className="tab-content text-center">
@@ -375,6 +473,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   initialTrackedValue={initialTrackedValue}
                   initialIsOutOfControlMiss={initialIsOutOfControlMiss}
                   yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
+                  weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}} // Pass habit-specific weekly counts
+                  monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}} // Pass habit-specific monthly counts
                 />
               );
             })}

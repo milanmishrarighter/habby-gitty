@@ -21,6 +21,8 @@ interface DailyHabitTrackerCardProps {
   initialTrackedValue: string | null;
   initialIsOutOfControlMiss: boolean; // New parameter
   yearlyOutOfControlMissCounts: { [habitId: string]: YearlyOutOfControlMissCount }; // New parameter
+  weeklyTrackingCounts: { [trackingValue: string]: number }; // New prop
+  monthlyTrackingCounts: { [trackingValue: string]: number }; // New prop
 }
 
 const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
@@ -31,6 +33,8 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   initialTrackedValue,
   initialIsOutOfControlMiss,
   yearlyOutOfControlMissCounts,
+  weeklyTrackingCounts, // Destructure new prop
+  monthlyTrackingCounts, // Destructure new prop
 }) => {
   const [selectedTrackingValue, setSelectedTrackingValue] = React.useState<string | null>(initialTrackedValue);
   const [displayYearlyProgress, setDisplayYearlyProgress] = React.useState(currentYearlyProgress);
@@ -163,6 +167,9 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
                 onClick={() => handleValueClick(value)}
               >
                 {value}
+                <span className="ml-2 text-xs text-gray-500">
+                  (W:{weeklyTrackingCounts[value] || 0}/M:{monthlyTrackingCounts[value] || 0})
+                </span>
               </div>
             ))}
           </div>
