@@ -84,13 +84,18 @@ const HabitSetup: React.FC = () => {
     setAllowedOutOfControlMisses(""); // Reset new field
   };
 
-  const addTrackingValue = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleAddNewTrackingValue = () => {
+    const value = trackingValueInput.trim();
+    if (value !== "" && !tempTrackingValues.includes(value)) {
+      setTempTrackingValues((prev) => [...prev, value]);
+      setTrackingValueInput("");
+    }
+  };
+
+  const handleTrackingValueKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
-      const value = trackingValueInput.trim();
-      if (value !== "" && !tempTrackingValues.includes(value)) {
-        setTempTrackingValues((prev) => [...prev, value]);
-        setTrackingValueInput("");
-      }
+      event.preventDefault(); // Prevent form submission if this input is part of a form
+      handleAddNewTrackingValue();
     }
   };
 
@@ -325,16 +330,27 @@ const HabitSetup: React.FC = () => {
         </div>
         {/* Tracking Values Input */}
         <div className="w-full max-w-sm">
-          <label htmlFor="tracking-values" className="block text-sm font-medium text-gray-700 text-left">Tracking Values (Press Enter to save)</label>
-          <input
-            type="text"
-            id="tracking-values"
-            placeholder="e.g., Water, 8 glasses"
-            className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
-            value={trackingValueInput}
-            onChange={(e) => setTrackingValueInput(e.target.value)}
-            onKeyDown={addTrackingValue}
-          />
+          <label htmlFor="tracking-values" className="block text-sm font-medium text-gray-700 text-left">Tracking Values</label>
+          <div className="flex gap-2 mt-1">
+            <input
+              type="text"
+              id="tracking-values"
+              placeholder="e.g., Water, 8 glasses"
+              className="p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
+              value={trackingValueInput}
+              onChange={(e) => setTrackingValueInput(e.target.value)}
+              onKeyDown={handleTrackingValueKeyDown}
+            />
+            <Button
+              type="button"
+              onClick={handleAddNewTrackingValue}
+              className="shrink-0"
+              disabled={!trackingValueInput.trim()}
+            >
+              Add
+            </Button>
+          </div>
+          <p className="text-xs text-gray-500 mt-1 text-left">Press Enter or click 'Add' to save a value.</p>
           <div id="tracking-values-container" className="mt-2 flex flex-wrap gap-2 text-left">
             {tempTrackingValues.map((value, index) => (
               <span key={index} className="bg-blue-200 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded-full flex items-center space-x-1">
