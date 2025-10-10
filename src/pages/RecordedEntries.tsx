@@ -394,18 +394,36 @@ const RecordedEntries: React.FC = () => {
     setIsEditModalOpen(true);
   };
 
-  const handleSaveEditedEntry = async (updatedEntry: DailyEntry) => {
+  const handleSaveEditedEntry = async (updatedEntry: DailyEntry, oldDate: string) => {
     const { id, date, text, mood, timestamp } = updatedEntry;
-    const { error } = await supabase
+
+    // If the date has changed, we need to handle the old tracking records
+    if (date !== oldDate) {
+      // 1. Delete all daily_habit_tracking records associated with the OLD date
+      const { error: deleteOldTrackingError } = await supabase
+        .from('daily_habit_tracking')
+        .delete()
+        .eq('date', oldDate);
+
+      if (deleteOldTrackingError) {
+        console.error("Error deleting old daily tracking records:", deleteOldTrackingError);
+        showError("Failed to clean up old habit tracking data.");
+        // Continue, but log the error
+      }
+      // Note: Yearly progress/miss counts are handled by DailyHabitTrackerCard's onUpdateTracking
+      // when it upserts for the new date.
+    }
+
+    // Update the daily_entry record
+    const { error: entryUpdateError } = await supabase
       .from('daily_entries')
       .update({ date, text, mood, timestamp })
       .eq('id', id);
 
-    if (error) {
-      console.error("Error updating daily entry:", error);
+    if (entryUpdateError) {
+      console.error("Error updating daily entry:", entryUpdateError);
       showError("Failed to update daily entry.");
     } else {
-      // Reload all data to reflect changes and re-apply current filters
       showSuccess("Entry updated successfully!");
       applyFilters(); // Re-apply current filters after save
     }

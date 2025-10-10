@@ -5,21 +5,24 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
+import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal"; // Import OverwriteConfirmationModal
 import { showSuccess, showError } from "@/utils/toast";
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking"; // Import new types
+import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
-import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
+import { format } from 'date-fns'; // Import format for date
 
 interface EditDailyEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialEntry: DailyEntry | null;
-  onSave: (updatedEntry: DailyEntry) => Promise<void>;
+  onSave: (updatedEntry: DailyEntry, oldDate: string) => Promise<void>; // Modified onSave signature
 }
 
 const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClose, initialEntry, onSave }) => {
+  const [editedDate, setEditedDate] = React.useState(initialEntry?.date || "");
   const [journalText, setJournalText] = React.useState(initialEntry?.text || "");
   const [moodEmoji, setMoodEmoji] = React.useState(initialEntry?.mood || "😊");
   const [habits, setHabits] = React.useState<Habit[]>([]);
@@ -28,42 +31,60 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
   const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [isLoading, setIsLoading] = React.useState(false);
 
-  // Load data when modal opens or initialEntry changes
+  const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
+  const [pendingSaveData, setPendingSaveData] = React.useState<{ updatedEntry: DailyEntry; oldDate: string } | null>(null);
+
+  // Reset states when modal opens or initialEntry changes
+  React.useEffect(() => {
+    if (initialEntry) {
+      setEditedDate(initialEntry.date);
+      setJournalText(initialEntry.text);
+      setMoodEmoji(initialEntry.mood);
+      setDailyTracking({}); // Clear tracking to refetch for new date
+      setYearlyProgress({});
+      setYearlyOutOfControlMissCounts({});
+      setHabits([]); // Clear habits to refetch
+      setPendingSaveData(null);
+      setShowOverwriteConfirmModal(false);
+    }
+  }, [initialEntry]);
+
+  // Load data when modal opens or editedDate changes
   React.useEffect(() => {
     const fetchData = async () => {
-      if (initialEntry) {
-        setJournalText(initialEntry.text);
-        setMoodEmoji(initialEntry.mood);
+      if (!initialEntry || !editedDate) return;
 
-        const fetchHabits = async () => {
-          const { data, error } = await supabase
-            .from('habits')
-            .select('*')
-            .order('created_at', { ascending: false });
+      setIsLoading(true);
+      try {
+        const currentYear = new Date(editedDate).getFullYear().toString();
 
-          if (error) {
-            console.error("Error fetching habits for EditDailyEntryModal:", error);
-            showError("Failed to load habits.");
-          } else {
-            setHabits((data || []).map(mapSupabaseHabitToHabit)); // Apply mapping
-          }
-        };
-        fetchHabits();
+        // Fetch habits
+        const { data: habitsData, error: habitsError } = await supabase
+          .from('habits')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (habitsError) {
+          console.error("Error fetching habits for EditDailyEntryModal:", habitsError);
+          showError("Failed to load habits.");
+        } else {
+          setHabits((habitsData || []).map(mapSupabaseHabitToHabit));
+        }
 
         // Fetch daily habit tracking for the selected date
         const { data: trackingData, error: trackingError } = await supabase
           .from('daily_habit_tracking')
           .select('*')
-          .eq('date', initialEntry.date);
+          .eq('date', editedDate);
 
         if (trackingError) {
           console.error("Error fetching daily tracking:", trackingError);
           showError("Failed to load daily habit tracking.");
           setDailyTracking({});
         } else {
-          const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = { [initialEntry.date]: {} };
+          const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = { [editedDate]: {} };
           trackingData.forEach(record => {
-            newDailyTracking[initialEntry.date][record.habit_id] = {
+            newDailyTracking[editedDate][record.habit_id] = {
               trackedValues: record.tracked_values,
               isOutOfControlMiss: record.is_out_of_control_miss,
             };
@@ -72,7 +93,6 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
         }
 
         // Fetch yearly progress for the current year
-        const currentYear = new Date(initialEntry.date).getFullYear().toString();
         const { data: yearlyProgressData, error: yearlyProgressError } = await supabase
           .from('yearly_habit_progress')
           .select('*')
@@ -107,10 +127,15 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
           });
           setYearlyOutOfControlMissCounts(newMissCounts);
         }
+      } catch (err) {
+        console.error("Unexpected error in EditDailyEntryModal fetchData:", err);
+        showError("An unexpected error occurred while loading data.");
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchData();
-  }, [initialEntry]);
+  }, [initialEntry, editedDate]); // Re-fetch when initialEntry or editedDate changes
 
   const handleUpdateTracking = async (
     habitId: string,
@@ -120,6 +145,10 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
     isOutOfControlMiss: boolean,
     oldIsOutOfControlMiss: boolean,
   ) => {
+    // This function is called by DailyHabitTrackerCard and handles its own Supabase updates
+    // for daily_habit_tracking, yearly_habit_progress, and yearly_out_of_control_miss_counts.
+    // We just need to update the local state here to reflect changes.
+
     // Update daily tracking in Supabase
     const dailyTrackingRecord = {
       date: date,
@@ -203,42 +232,119 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (overwrite: boolean = false) => {
     if (!initialEntry) return;
 
-    if (!journalText.trim()) {
-      showError("Journal entry cannot be empty.");
+    if (!editedDate || !journalText.trim()) {
+      showError("Please select a date and write your journal entry.");
       return;
     }
 
     setIsLoading(true);
     const updatedEntry: DailyEntry = {
       ...initialEntry,
+      date: editedDate,
       text: journalText.trim(),
       mood: moodEmoji,
       timestamp: new Date().toISOString(),
     };
 
-    await onSave(updatedEntry);
-    setIsLoading(false);
-    onClose();
+    // Check if date has changed and if an entry already exists for the new date
+    if (editedDate !== initialEntry.date && !overwrite) {
+      const { data: existingEntry, error: fetchError } = await supabase
+        .from('daily_entries')
+        .select('id')
+        .eq('date', editedDate)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 means "no rows found"
+        console.error("Error checking for existing entry:", fetchError);
+        showError("Failed to check for existing entry.");
+        setIsLoading(false);
+        return;
+      }
+
+      if (existingEntry) {
+        setPendingSaveData({ updatedEntry, oldDate: initialEntry.date });
+        setShowOverwriteConfirmModal(true);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    try {
+      await onSave(updatedEntry, initialEntry.date); // Pass old date to parent for full reload
+      showSuccess("Daily entry saved!");
+      onClose();
+    } catch (error) {
+      console.error("Error saving daily entry:", error);
+      showError("Failed to save daily entry.");
+    } finally {
+      setIsLoading(false);
+      setShowOverwriteConfirmModal(false);
+      setPendingSaveData(null);
+    }
+  };
+
+  const handleConfirmOverwrite = async () => {
+    if (pendingSaveData) {
+      setIsLoading(true);
+      try {
+        // Delete the existing entry for the new date first
+        const { error: deleteExistingError } = await supabase
+          .from('daily_entries')
+          .delete()
+          .eq('date', pendingSaveData.updatedEntry.date);
+
+        if (deleteExistingError) {
+          console.error("Error deleting existing entry for overwrite:", deleteExistingError);
+          showError("Failed to overwrite existing entry.");
+          setIsLoading(false);
+          return;
+        }
+
+        // Now proceed with the save operation, which will update the original entry's date
+        await onSave(pendingSaveData.updatedEntry, pendingSaveData.oldDate);
+        showSuccess("Daily entry overwritten and saved!");
+        onClose();
+      } catch (error) {
+        console.error("Error during overwrite save:", error);
+        showError("Failed to save daily entry after overwrite.");
+      } finally {
+        setIsLoading(false);
+        setShowOverwriteConfirmModal(false);
+        setPendingSaveData(null);
+      }
+    }
   };
 
   if (!initialEntry) return null;
 
-  const entryDate = initialEntry.date;
-  const currentYear = new Date(entryDate).getFullYear().toString();
+  const currentYear = new Date(editedDate).getFullYear().toString();
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit Daily Entry for {initialEntry.date}</DialogTitle>
+          <DialogTitle>Edit Daily Entry for {format(new Date(initialEntry.date), 'do MMMM yyyy')}</DialogTitle>
           <DialogDescription>
             Make changes to your journal entry and habit tracking for this day.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
+          {/* Date Picker */}
+          <div className="flex flex-col items-center justify-center mb-4 w-full">
+            <label htmlFor="entry-date-edit" className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+            <input
+              type="date"
+              id="entry-date-edit"
+              className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={editedDate}
+              onChange={(e) => setEditedDate(e.target.value)}
+              disabled={isLoading}
+            />
+          </div>
+
           <div className="flex flex-col items-center justify-center mb-4 w-full">
             <label htmlFor="journal-entry-edit" className="block text-sm font-medium text-gray-700 mb-2">Journal Entry</label>
             <textarea
@@ -248,6 +354,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
               placeholder="Write your thoughts here..."
               value={journalText}
               onChange={(e) => setJournalText(e.target.value)}
+              disabled={isLoading}
             ></textarea>
           </div>
           <div className="flex flex-col items-center justify-center mb-4">
@@ -266,21 +373,24 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {habits.map((habit) => {
                   const currentYearlyProgress = yearlyProgress[currentYear]?.[habit.id] || 0;
-                  const initialTrackedValue = entryDate && dailyTracking[entryDate]?.[habit.id]?.trackedValues?.length > 0
-                    ? dailyTracking[entryDate][habit.id].trackedValues[0]
+                  const initialTrackedValue = editedDate && dailyTracking[editedDate]?.[habit.id]?.trackedValues?.length > 0
+                    ? dailyTracking[editedDate][habit.id].trackedValues[0]
                     : null;
-                  const initialIsOutOfControlMiss = entryDate && dailyTracking[entryDate]?.[habit.id]?.isOutOfControlMiss || false;
+                  const initialIsOutOfControlMiss = editedDate && dailyTracking[editedDate]?.[habit.id]?.isOutOfControlMiss || false;
 
                   return (
                     <DailyHabitTrackerCard
                       key={habit.id}
                       habit={habit}
-                      entryDate={entryDate}
+                      entryDate={editedDate} // Pass editedDate
                       onUpdateTracking={handleUpdateTracking}
                       currentYearlyProgress={currentYearlyProgress}
                       initialTrackedValue={initialTrackedValue}
                       initialIsOutOfControlMiss={initialIsOutOfControlMiss}
                       yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
+                      // Pass empty objects for weekly/monthly counts as they are not used in this modal's context
+                      weeklyTrackingCounts={{}}
+                      monthlyTrackingCounts={{}}
                     />
                   );
                 })}
@@ -290,11 +400,18 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={isLoading}>Cancel</Button>
-          <Button onClick={handleSave} disabled={isLoading}>
+          <Button onClick={() => handleSave()} disabled={isLoading}>
             {isLoading ? "Saving..." : "Save Changes"}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <OverwriteConfirmationModal
+        isOpen={showOverwriteConfirmModal}
+        onClose={() => setShowOverwriteConfirmModal(false)}
+        onConfirm={handleConfirmOverwrite}
+        itemToOverwriteName={pendingSaveData ? `the entry for ${format(new Date(pendingSaveData.updatedEntry.date), 'do MMMM yyyy')}` : "this entry"}
+      />
     </Dialog>
   );
 };
