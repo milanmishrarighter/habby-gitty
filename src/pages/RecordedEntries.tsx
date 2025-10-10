@@ -9,13 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from 'date-fns';
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord, YearlyProgressRecord } from "@/types/tracking";
+import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
-import HabitTrackingDisplay from "@/components/HabitTrackingDisplay"; // Import the new component
+import HabitTrackingDisplay from "@/components/HabitTrackingDisplay";
 
 // Shadcn UI components for filters
-import { CalendarIcon, XCircle, Check } from "lucide-react"; // Added Check icon
+import { CalendarIcon, XCircle, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -320,15 +320,15 @@ const RecordedEntries: React.FC = () => {
 
             if (updateMissCountError) {
               console.error("Error decrementing yearly miss count:", updateMissCountError);
-              showError("Failed to decrement yearly miss count.");
+              showError("Failed to decrement yearly habit miss count.");
             }
           }
         }
 
         // Decrement yearly habit progress if tracked values contributed to a goal
-        const habit = allHabits.find(h => h.id === record.habit_id); // Use allHabits
+        const habit = allHabits.find(h => h.id === record.habit_id);
         if (habit && habit.yearlyGoal && habit.yearlyGoal.contributingValues && record.tracked_values.length > 0) {
-          const trackedValue = record.tracked_values[0]; // Assuming only one tracked value per day per habit
+          const trackedValue = record.tracked_values[0];
           if (habit.yearlyGoal.contributingValues.includes(trackedValue)) {
             const { data: currentProgressData, error: fetchProgressError } = await supabase
               .from('yearly_habit_progress')
@@ -394,12 +394,62 @@ const RecordedEntries: React.FC = () => {
     setIsEditModalOpen(true);
   };
 
-  const handleSaveEditedEntry = async (updatedEntry: DailyEntry, oldDate: string) => {
-    const { id, date, text, mood, timestamp } = updatedEntry;
+  const handleSaveEditedEntry = async (
+    updatedEntry: DailyEntry,
+    oldDate: string,
+    updatedHabitTracking: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }
+  ) => {
+    const { id, date: newDate, text, mood, timestamp } = updatedEntry;
+    const oldYear = new Date(oldDate).getFullYear().toString();
+    const newYear = new Date(newDate).getFullYear().toString();
 
-    // If the date has changed, we need to handle the old tracking records
-    if (date !== oldDate) {
-      // 1. Delete all daily_habit_tracking records associated with the OLD date
+    // If the date has changed, we need to move the tracking records
+    if (newDate !== oldDate) {
+      // --- Step 1: Decrement yearly counts for the OLD date's context ---
+      for (const habitId in updatedHabitTracking) {
+        const trackingInfo = updatedHabitTracking[habitId];
+        const habit = allHabits.find(h => h.id === habitId);
+
+        if (!habit) continue;
+
+        // Decrement yearly out-of-control miss counts for old year
+        if (trackingInfo.isOutOfControlMiss) {
+          const { data: currentMissCountData, error: fetchMissCountError } = await supabase
+            .from('yearly_out_of_control_miss_counts')
+            .select('id, used_count')
+            .eq('habit_id', habitId)
+            .eq('year', oldYear)
+            .single();
+
+          if (!fetchMissCountError && currentMissCountData) {
+            const newUsedCount = Math.max(0, currentMissCountData.used_count - 1);
+            await supabase
+              .from('yearly_out_of_control_miss_counts')
+              .update({ used_count: newUsedCount })
+              .eq('id', currentMissCountData.id);
+          }
+        }
+
+        // Decrement yearly habit progress for old year
+        if (trackingInfo.trackedValues.length > 0 && habit.yearlyGoal?.contributingValues?.includes(trackingInfo.trackedValues[0])) {
+          const { data: currentProgressData, error: fetchProgressError } = await supabase
+            .from('yearly_habit_progress')
+            .select('id, progress_count')
+            .eq('habit_id', habitId)
+            .eq('year', oldYear)
+            .single();
+
+          if (!fetchProgressError && currentProgressData) {
+            const newProgressCount = Math.max(0, currentProgressData.progress_count - 1);
+            await supabase
+              .from('yearly_habit_progress')
+              .update({ progress_count: newProgressCount })
+              .eq('id', currentProgressData.id);
+          }
+        }
+      }
+
+      // --- Step 2: Delete all daily_habit_tracking records associated with the OLD date ---
       const { error: deleteOldTrackingError } = await supabase
         .from('daily_habit_tracking')
         .delete()
@@ -408,16 +458,84 @@ const RecordedEntries: React.FC = () => {
       if (deleteOldTrackingError) {
         console.error("Error deleting old daily tracking records:", deleteOldTrackingError);
         showError("Failed to clean up old habit tracking data.");
-        // Continue, but log the error
       }
-      // Note: Yearly progress/miss counts are handled by DailyHabitTrackerCard's onUpdateTracking
-      // when it upserts for the new date.
+
+      // --- Step 3: Insert new daily_habit_tracking records for the NEW date ---
+      const newTrackingRecords = Object.entries(updatedHabitTracking).map(([habitId, trackingInfo]) => ({
+        date: newDate,
+        habit_id: habitId,
+        tracked_values: trackingInfo.trackedValues,
+        is_out_of_control_miss: trackingInfo.isOutOfControlMiss,
+      }));
+
+      if (newTrackingRecords.length > 0) {
+        const { error: insertNewTrackingError } = await supabase
+          .from('daily_habit_tracking')
+          .insert(newTrackingRecords);
+
+        if (insertNewTrackingError) {
+          console.error("Error inserting new daily tracking records:", insertNewTrackingError);
+          showError("Failed to insert new habit tracking data.");
+        }
+      }
+
+      // --- Step 4: Increment yearly counts for the NEW date's context ---
+      for (const habitId in updatedHabitTracking) {
+        const trackingInfo = updatedHabitTracking[habitId];
+        const habit = allHabits.find(h => h.id === habitId);
+
+        if (!habit) continue;
+
+        // Increment yearly out-of-control miss counts for new year
+        if (trackingInfo.isOutOfControlMiss) {
+          const { data: currentMissCountData, error: fetchMissCountError } = await supabase
+            .from('yearly_out_of_control_miss_counts')
+            .select('id, used_count')
+            .eq('habit_id', habitId)
+            .eq('year', newYear)
+            .single();
+
+          if (!fetchMissCountError && currentMissCountData) {
+            const newUsedCount = currentMissCountData.used_count + 1;
+            await supabase
+              .from('yearly_out_of_control_miss_counts')
+              .update({ used_count: newUsedCount })
+              .eq('id', currentMissCountData.id);
+          } else if (fetchMissCountError?.code === 'PGRST116') { // No record exists, insert new
+            await supabase
+              .from('yearly_out_of_control_miss_counts')
+              .insert({ habit_id: habitId, year: newYear, used_count: 1 });
+          }
+        }
+
+        // Increment yearly habit progress for new year
+        if (trackingInfo.trackedValues.length > 0 && habit.yearlyGoal?.contributingValues?.includes(trackingInfo.trackedValues[0])) {
+          const { data: currentProgressData, error: fetchProgressError } = await supabase
+            .from('yearly_habit_progress')
+            .select('id, progress_count')
+            .eq('habit_id', habitId)
+            .eq('year', newYear)
+            .single();
+
+          if (!fetchProgressError && currentProgressData) {
+            const newProgressCount = currentProgressData.progress_count + 1;
+            await supabase
+              .from('yearly_habit_progress')
+              .update({ progress_count: newProgressCount })
+              .eq('id', currentProgressData.id);
+          } else if (fetchProgressError?.code === 'PGRST116') { // No record exists, insert new
+            await supabase
+              .from('yearly_habit_progress')
+              .insert({ habit_id: habitId, year: newYear, progress_count: 1 });
+          }
+        }
+      }
     }
 
     // Update the daily_entry record
     const { error: entryUpdateError } = await supabase
       .from('daily_entries')
-      .update({ date, text, mood, timestamp })
+      .update({ date: newDate, text, mood, timestamp })
       .eq('id', id);
 
     if (entryUpdateError) {
@@ -495,7 +613,7 @@ const RecordedEntries: React.FC = () => {
                     checked={!!selectedHabitFilters[habit.id]}
                     onCheckedChange={(checked) => handleHabitToggle(habit.id, habit.name, habit.color, checked)}
                     disabled={!selectedHabitFilters[habit.id] && Object.keys(selectedHabitFilters).length >= 3}
-                    onSelect={(e) => e.preventDefault()} // Prevent closing on click
+                    onSelect={(e) => e.preventDefault()}
                   >
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
@@ -504,7 +622,7 @@ const RecordedEntries: React.FC = () => {
                     </div>
                   </DropdownMenuCheckboxItem>
                   {selectedHabitFilters[habit.id] && (
-                    <div className="ml-6 border-l pl-2 py-1"> {/* Indent and visually separate sub-options */}
+                    <div className="ml-6 border-l pl-2 py-1">
                       <DropdownMenuLabel className="text-xs text-gray-500">Values for {habit.name}</DropdownMenuLabel>
                       {habit.trackingValues.length > 0 ? (
                         habit.trackingValues.map((value) => (
@@ -512,7 +630,7 @@ const RecordedEntries: React.FC = () => {
                             key={value}
                             checked={selectedHabitFilters[habit.id]?.selectedTrackingValues.includes(value)}
                             onCheckedChange={(checked) => handleTrackingValueSelect(habit.id, value, checked)}
-                            onSelect={(e) => e.preventDefault()} // Prevent closing on click
+                            onSelect={(e) => e.preventDefault()}
                           >
                             {value}
                           </DropdownMenuCheckboxItem>
@@ -524,7 +642,7 @@ const RecordedEntries: React.FC = () => {
                         <DropdownMenuCheckboxItem
                           checked={selectedHabitFilters[habit.id]?.includeOutOfControlMiss}
                           onCheckedChange={(checked) => handleOutOfControlMissSelect(habit.id, checked)}
-                          onSelect={(e) => e.preventDefault()} // Prevent closing on click
+                          onSelect={(e) => e.preventDefault()}
                         >
                           Out-of-Control Miss
                         </DropdownMenuCheckboxItem>
@@ -573,7 +691,7 @@ const RecordedEntries: React.FC = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="flex-grow">
-                  <p className="text-gray-700 text-left">{entry.text}</p> {/* Removed line-clamp-4 */}
+                  <p className="text-gray-700 text-left">{entry.text}</p>
                   
                   <HabitTrackingDisplay 
                     habitsTrackedForDay={habitsTrackedForDay} 
