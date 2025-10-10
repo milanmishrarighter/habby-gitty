@@ -288,6 +288,51 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
         [habitId]: missCountUpsertData[0],
       }));
     }
+
+    // Re-fetch weekly/monthly counts after any update to ensure they are current
+    const selectedDate = new Date(date);
+    const startOfCurrentWeek = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const endOfCurrentWeek = format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const startOfCurrentMonth = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
+    const endOfCurrentMonth = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
+
+    const { data: weeklyRecords, error: weeklyError } = await supabase
+      .from('daily_habit_tracking')
+      .select('*')
+      .gte('date', startOfCurrentWeek)
+      .lte('date', endOfCurrentWeek);
+
+    if (!weeklyError) {
+      const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
+      weeklyRecords.forEach(record => {
+        if (!calculatedWeeklyCounts[record.habit_id]) {
+          calculatedWeeklyCounts[record.habit_id] = {};
+        }
+        record.tracked_values.forEach(value => {
+          calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+        });
+      });
+      setWeeklyTrackingCounts(calculatedWeeklyCounts);
+    }
+
+    const { data: monthlyRecords, error: monthlyError } = await supabase
+      .from('daily_habit_tracking')
+      .select('*')
+      .gte('date', startOfCurrentMonth)
+      .lte('date', endOfCurrentMonth);
+
+    if (!monthlyError) {
+      const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
+      monthlyRecords.forEach(record => {
+        if (!calculatedMonthlyCounts[record.habit_id]) {
+          calculatedMonthlyCounts[record.habit_id] = {};
+        }
+        record.tracked_values.forEach(value => {
+          calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+        });
+      });
+      setMonthlyTrackingCounts(calculatedMonthlyCounts);
+    }
   };
 
   const handleSave = async (overwrite: boolean = false) => {
@@ -438,7 +483,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
 
                   return (
                     <DailyHabitTrackerCard
-                      key={habit.id}
+                      key={`${habit.id}-${editedDate}`} {/* Updated key here */}
                       habit={habit}
                       entryDate={editedDate} // Pass editedDate
                       onUpdateTracking={handleUpdateTracking}
