@@ -102,7 +102,8 @@ const FineCard: React.FC<FineCardProps> = ({
               const totalUsedMissesForHabitYear = yearlyOutOfControlMissCounts[habit.id]?.used_count || 0;
               const allowedYearlyMisses = habit.allowedOutOfControlMisses || 0;
 
-              if (condition.count > 0 && actualCount === condition.count - 1) {
+              // Only show warning if actualCount is greater than 0
+              if (condition.count > 0 && actualCount > 0 && actualCount === condition.count - 1) {
                 currentWarnings.push(
                   `Heads up: You have tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${periodType.slice(0, -2)}. One more tracking of this value will incur a fine.`
                 );

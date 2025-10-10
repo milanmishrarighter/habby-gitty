@@ -72,8 +72,8 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
           `Fine: Tracking value '${condition.trackingValue}' occurred ${actualCount} times, which exceeds the allowed ${condition.count} times this ${condition.frequency.slice(0, -2)}.`
         );
       }
-      // Warning logic: one away from fine limit
-      else if (condition.count > 0 && actualCount === condition.count - 1) {
+      // Warning logic: one away from fine limit, only if actualCount is > 0
+      else if (condition.count > 0 && actualCount > 0 && actualCount === condition.count - 1) {
         currentWarnings.push(
           `Heads up: You have tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${condition.frequency.slice(0, -2)}. One more tracking of this value will incur a fine.`
         );
