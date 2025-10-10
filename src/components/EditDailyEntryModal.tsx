@@ -12,7 +12,7 @@ import { DailyEntry } from "@/types/dailyEntry";
 import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
-import { format } from 'date-fns'; // Import format for date
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'; // Import format for date
 
 interface EditDailyEntryModalProps {
   isOpen: boolean;
@@ -29,6 +29,8 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
   const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
   const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
+  const [weeklyTrackingCounts, setWeeklyTrackingCounts] = React.useState<{ [habitId: string]: { [trackingValue: string]: number } }>({});
+  const [monthlyTrackingCounts, setMonthlyTrackingCounts] = React.useState<{ [habitId: string]: { [trackingValue: string]: number } }>({});
   const [isLoading, setIsLoading] = React.useState(false);
 
   const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
@@ -43,6 +45,8 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
       setDailyTracking({}); // Clear tracking to refetch for new date
       setYearlyProgress({});
       setYearlyOutOfControlMissCounts({});
+      setWeeklyTrackingCounts({});
+      setMonthlyTrackingCounts({});
       setHabits([]); // Clear habits to refetch
       setPendingSaveData(null);
       setShowOverwriteConfirmModal(false);
@@ -56,7 +60,8 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
 
       setIsLoading(true);
       try {
-        const currentYear = new Date(editedDate).getFullYear().toString();
+        const selectedDate = new Date(editedDate);
+        const currentYear = selectedDate.getFullYear().toString();
 
         // Fetch habits
         const { data: habitsData, error: habitsError } = await supabase
@@ -127,6 +132,59 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
           });
           setYearlyOutOfControlMissCounts(newMissCounts);
         }
+
+        // --- Calculate Weekly and Monthly Tracking Counts ---
+        const startOfCurrentWeek = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd'); // Monday start
+        const endOfCurrentWeek = format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+        const startOfCurrentMonth = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
+        const endOfCurrentMonth = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
+
+        // Fetch all tracking records for the current week
+        const { data: weeklyRecords, error: weeklyError } = await supabase
+          .from('daily_habit_tracking')
+          .select('*')
+          .gte('date', startOfCurrentWeek)
+          .lte('date', endOfCurrentWeek);
+
+        if (weeklyError) {
+          console.error("Error fetching weekly tracking records:", weeklyError);
+          showError("Failed to load weekly tracking data.");
+        } else {
+          const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
+          weeklyRecords.forEach(record => {
+            if (!calculatedWeeklyCounts[record.habit_id]) {
+              calculatedWeeklyCounts[record.habit_id] = {};
+            }
+            record.tracked_values.forEach(value => {
+              calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+            });
+          });
+          setWeeklyTrackingCounts(calculatedWeeklyCounts);
+        }
+
+        // Fetch all tracking records for the current month
+        const { data: monthlyRecords, error: monthlyError } = await supabase
+          .from('daily_habit_tracking')
+          .select('*')
+          .gte('date', startOfCurrentMonth)
+          .lte('date', endOfCurrentMonth);
+
+        if (monthlyError) {
+          console.error("Error fetching monthly tracking records:", monthlyError);
+          showError("Failed to load monthly tracking data.");
+        } else {
+          const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
+          monthlyRecords.forEach(record => {
+            if (!calculatedMonthlyCounts[record.habit_id]) {
+              calculatedMonthlyCounts[record.habit_id] = {};
+            }
+            record.tracked_values.forEach(value => {
+              calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+            });
+          });
+          setMonthlyTrackingCounts(calculatedMonthlyCounts);
+        }
+
       } catch (err) {
         console.error("Unexpected error in EditDailyEntryModal fetchData:", err);
         showError("An unexpected error occurred while loading data.");
@@ -388,9 +446,8 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
                       initialTrackedValue={initialTrackedValue}
                       initialIsOutOfControlMiss={initialIsOutOfControlMiss}
                       yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
-                      // Pass empty objects for weekly/monthly counts as they are not used in this modal's context
-                      weeklyTrackingCounts={{}}
-                      monthlyTrackingCounts={{}}
+                      weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}} // Pass habit-specific weekly counts
+                      monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}} // Pass habit-specific monthly counts
                     />
                   );
                 })}
