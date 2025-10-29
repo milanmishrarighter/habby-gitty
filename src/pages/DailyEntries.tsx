@@ -5,15 +5,15 @@ import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal";
-import { showSuccess, showError, showInfo, dismissToast } from "@/utils/toast"; // Updated import
+import { showSuccess, showError, showInfo, dismissToast } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking"; // Import new types
+import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
-import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns'; // Import date-fns utilities
-import { cn } from "@/lib/utils"; // Import cn for conditional classNames
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays } from 'date-fns'; // Added addDays
+import { cn } from "@/lib/utils";
 
 interface DailyEntriesProps {
   setActiveTab: (tab: string) => void;
@@ -37,7 +37,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null);
 
-  // New states for weekly and monthly tracking counts
   const [weeklyTrackingCounts, setWeeklyTrackingCounts] = React.useState<{ [habitId: string]: { [trackingValue: string]: number } }>({});
   const [monthlyTrackingCounts, setMonthlyTrackingCounts] = React.useState<{ [habitId: string]: { [trackingValue: string]: number } }>({});
 
@@ -62,7 +61,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         showError("Failed to load last entry date.");
         setEntryDate(getTodayDate()); // Fallback to today
       } else if (latestEntry) {
-        setEntryDate(latestEntry.date);
+        const lastEntryDate = new Date(latestEntry.date);
+        const nextDay = addDays(lastEntryDate, 1); // Set to the day after the last entry
+        setEntryDate(format(nextDay, 'yyyy-MM-dd'));
       } else {
         setEntryDate(getTodayDate()); // No entries found, default to today
       }
@@ -462,7 +463,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           type="date"
           id="entry-date"
           className={cn(
-            "mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full max-w-sm text-center", // Added text-center here
+            "mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full max-w-sm text-center",
             highlightDate && "ring-4 ring-blue-300 transition-all duration-500 ease-out"
           )}
           value={entryDate}
@@ -520,8 +521,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   initialTrackedValue={initialTrackedValue}
                   initialIsOutOfControlMiss={initialIsOutOfControlMiss}
                   yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
-                  weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}} // Pass habit-specific weekly counts
-                  monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}} // Pass habit-specific monthly counts
+                  weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
+                  monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
                 />
               );
             })}
