@@ -3,8 +3,8 @@
 import React from 'react';
 import { showSuccess, showError } from '@/utils/toast';
 import { Habit } from '@/types/habit';
-import { YearlyOutOfControlMissCount } from '@/types/tracking'; // Import new type
-import { Switch } from "@/components/ui/switch"; // Assuming shadcn/ui Switch component
+import { YearlyOutOfControlMissCount } from '@/types/tracking';
+import { Switch } from "@/components/ui/switch";
 
 interface DailyHabitTrackerCardProps {
   habit: Habit;
@@ -14,15 +14,16 @@ interface DailyHabitTrackerCardProps {
     date: string,
     trackedValues: string[],
     yearlyProgress: number,
-    isOutOfControlMiss: boolean, // New parameter
-    oldIsOutOfControlMiss: boolean, // New parameter
+    isOutOfControlMiss: boolean,
+    oldIsOutOfControlMiss: boolean,
   ) => Promise<void>;
   currentYearlyProgress: number;
   initialTrackedValue: string | null;
-  initialIsOutOfControlMiss: boolean; // New parameter
-  yearlyOutOfControlMissCounts: { [habitId: string]: YearlyOutOfControlMissCount }; // New parameter
-  weeklyTrackingCounts: { [trackingValue: string]: number }; // New prop
-  monthlyTrackingCounts: { [trackingValue: string]: number }; // New prop
+  initialIsOutOfControlMiss: boolean;
+  yearlyOutOfControlMissCounts: { [habitId: string]: YearlyOutOfControlMissCount };
+  weeklyTrackingCounts: { [trackingValue: string]: number };
+  monthlyTrackingCounts: { [trackingValue: string]: number };
+  isWeekOffForThisDay: boolean; // New prop to indicate if the day is part of a week off
 }
 
 const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
@@ -35,11 +36,12 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   yearlyOutOfControlMissCounts,
   weeklyTrackingCounts,
   monthlyTrackingCounts,
+  isWeekOffForThisDay, // Destructure new prop
 }) => {
   const [selectedTrackingValue, setSelectedTrackingValue] = React.useState<string | null>(initialTrackedValue);
   const [displayYearlyProgress, setDisplayYearlyProgress] = React.useState(currentYearlyProgress);
   const [isOutOfControlMiss, setIsOutOfControlMiss] = React.useState(initialIsOutOfControlMiss);
-  const [fineOrWarningMessage, setFineOrWarningMessage] = React.useState<string | null>(null); // New state for message
+  const [fineOrWarningMessage, setFineOrWarningMessage] = React.useState<string | null>(null);
 
   const currentYear = new Date(entryDate).getFullYear().toString();
   const habitMissCount = yearlyOutOfControlMissCounts[habit.id];
@@ -48,9 +50,15 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   const remainingMisses = allowedMisses - usedMisses;
 
   React.useEffect(() => {
-    setSelectedTrackingValue(initialTrackedValue);
-    setIsOutOfControlMiss(initialIsOutOfControlMiss);
-  }, [initialTrackedValue, initialIsOutOfControlMiss]);
+    // If the day is marked as week off, override local state to reflect it
+    if (isWeekOffForThisDay) {
+      setSelectedTrackingValue("WEEK_OFF");
+      setIsOutOfControlMiss(false); // Week off is not an out-of-control miss
+    } else {
+      setSelectedTrackingValue(initialTrackedValue);
+      setIsOutOfControlMiss(initialIsOutOfControlMiss);
+    }
+  }, [initialTrackedValue, initialIsOutOfControlMiss, isWeekOffForThisDay]);
 
   React.useEffect(() => {
     setDisplayYearlyProgress(currentYearlyProgress);
@@ -58,6 +66,10 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
 
   // Function to calculate and set fine/warning message
   const calculateFineOrWarning = React.useCallback(() => {
+    if (isWeekOffForThisDay) {
+      return null; // No fines/warnings if week is off
+    }
+
     const currentWarnings: string[] = [];
     const currentFines: string[] = [];
 
@@ -112,6 +124,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     yearlyOutOfControlMissCounts,
     allowedMisses,
     usedMisses,
+    isWeekOffForThisDay,
   ]);
 
   // Recalculate message whenever relevant props or internal states change
@@ -121,6 +134,10 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
 
 
   const handleValueClick = async (value: string) => {
+    if (isWeekOffForThisDay) {
+      showError("This day is part of a 'Week Off'. Individual habit tracking is disabled.");
+      return;
+    }
     if (!entryDate) {
       showError("Please select a date first to track habits.");
       return;
@@ -170,6 +187,10 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   };
 
   const handleOutOfControlMissToggle = async (checked: boolean) => {
+    if (isWeekOffForThisDay) {
+      showError("This day is part of a 'Week Off'. Individual habit tracking is disabled.");
+      return;
+    }
     if (!entryDate) {
       showError("Please select a date first to track habits.");
       return;
@@ -215,53 +236,62 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
         </div>
       </div>
 
-      {(habit.trackingValues && habit.trackingValues.length > 0) && (
-        <div className="mt-2">
-          <p className="font-medium mb-1 text-left">Track for today:</p>
-          <div className="flex flex-wrap gap-2">
-            {habit.trackingValues.map((value, index) => (
-              <div
-                key={index}
-                className={`cursor-pointer px-4 py-2 rounded-lg border-2 transition-all duration-200
-                  ${selectedTrackingValue === value
-                    ? `bg-blue-100 border-blue-500 text-blue-800`
-                    : `bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200`
-                  }
-                  ${!entryDate ? 'opacity-50 cursor-not-allowed' : ''}
-                `}
-                onClick={() => handleValueClick(value)}
-              >
-                {value}
-                <span className="ml-2 text-xs text-gray-500">
-                  (W:{weeklyTrackingCounts[value] || 0}/M:{monthlyTrackingCounts[value] || 0})
-                </span>
+      {isWeekOffForThisDay ? (
+        <div className="dotted-border-container py-6">
+          <p className="text-lg font-semibold text-blue-700">Week Off!</p>
+          <p className="text-sm text-gray-600">This week is marked off for habit tracking.</p>
+        </div>
+      ) : (
+        <>
+          {(habit.trackingValues && habit.trackingValues.length > 0) && (
+            <div className="mt-2">
+              <p className="font-medium mb-1 text-left">Track for today:</p>
+              <div className="flex flex-wrap gap-2">
+                {habit.trackingValues.map((value, index) => (
+                  <div
+                    key={index}
+                    className={`cursor-pointer px-4 py-2 rounded-lg border-2 transition-all duration-200
+                      ${selectedTrackingValue === value
+                        ? `bg-blue-100 border-blue-500 text-blue-800`
+                        : `bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200`
+                      }
+                      ${!entryDate ? 'opacity-50 cursor-not-allowed' : ''}
+                    `}
+                    onClick={() => handleValueClick(value)}
+                  >
+                    {value}
+                    <span className="ml-2 text-xs text-gray-500">
+                      (W:{weeklyTrackingCounts[value] || 0}/M:{monthlyTrackingCounts[value] || 0})
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
 
-      {/* Fine/Warning Message Display */}
-      {fineOrWarningMessage && (
-        <div className={`mt-3 p-2 rounded-md text-sm text-left ${fineOrWarningMessage.startsWith('Fine:') ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-yellow-100 text-yellow-800 border border-yellow-300'}`}>
-          {fineOrWarningMessage}
-        </div>
-      )}
+          {/* Fine/Warning Message Display */}
+          {fineOrWarningMessage && (
+            <div className={`mt-3 p-2 rounded-md text-sm text-left ${fineOrWarningMessage.startsWith('Fine:') ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-yellow-100 text-yellow-800 border border-yellow-300'}`}>
+              {fineOrWarningMessage}
+            </div>
+          )}
 
-      {/* Out-of-Control Miss Toggle */}
-      {isMissed && allowedMisses > 0 && (
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
-          <label htmlFor={`out-of-control-miss-${habit.id}`} className="flex-grow text-sm font-medium text-gray-700 text-left cursor-pointer">
-            Mark as Out-of-Control Miss
-            <p className="text-xs text-gray-500">({remainingMisses} / {allowedMisses} remaining this year)</p>
-          </label>
-          <Switch
-            id={`out-of-control-miss-${habit.id}`}
-            checked={isOutOfControlMiss}
-            onCheckedChange={handleOutOfControlMissToggle}
-            disabled={!entryDate || (isOutOfControlMiss === false && remainingMisses <= 0)}
-          />
-        </div>
+          {/* Out-of-Control Miss Toggle */}
+          {isMissed && allowedMisses > 0 && (
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
+              <label htmlFor={`out-of-control-miss-${habit.id}`} className="flex-grow text-sm font-medium text-gray-700 text-left cursor-pointer">
+                Mark as Out-of-Control Miss
+                <p className="text-xs text-gray-500">({remainingMisses} / {allowedMisses} remaining this year)</p>
+              </label>
+              <Switch
+                id={`out-of-control-miss-${habit.id}`}
+                checked={isOutOfControlMiss}
+                onCheckedChange={handleOutOfControlMissToggle}
+                disabled={!entryDate || (isOutOfControlMiss === false && remainingMisses <= 0)}
+              />
+            </div>
+          )}
+        </>
       )}
     </div>
   );

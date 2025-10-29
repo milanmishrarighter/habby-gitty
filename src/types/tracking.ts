@@ -22,3 +22,11 @@ export interface YearlyOutOfControlMissCount {
   used_count: number;
   created_at: string;
 }
+
+export interface WeeklyOffRecord {
+  id: string;
+  year: string;
+  week_number: number; // ISO week number (1-53)
+  is_off: boolean;
+  created_at: string;
+}

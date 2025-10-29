@@ -9,11 +9,13 @@ import { showSuccess, showError, showInfo, dismissToast } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking";
+import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount, WeeklyOffRecord } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays } from 'date-fns'; // Added addDays
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays, isMonday, getISOWeek, eachDayOfInterval } from 'date-fns'; // Added addDays, isMonday, getISOWeek, eachDayOfInterval
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch"; // Import Switch component
+import { AppSettings } from "@/types/appSettings"; // Import AppSettings
 
 interface DailyEntriesProps {
   setActiveTab: (tab: string) => void;
@@ -45,6 +47,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
   const [highlightDate, setHighlightDate] = React.useState(false);
   const toastIdRef = React.useRef<string | number | null>(null);
+
+  // New states for week off feature
+  const [appSettings, setAppSettings] = React.useState<AppSettings | null>(null);
+  const [currentWeekOffRecord, setCurrentWeekOffRecord] = React.useState<WeeklyOffRecord | null>(null);
+  const [usedWeekOffsCount, setUsedWeekOffsCount] = React.useState<number>(0);
+  const [isWeekOffLoading, setIsWeekOffLoading] = React.useState(false);
 
   // Effect to set default date, highlight, and show hint
   React.useEffect(() => {
@@ -88,23 +96,38 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     fetchLastEntryDate();
   }, []); // Run once on mount
 
-  // Load habits from Supabase on component mount
+  // Load habits and app settings from Supabase on component mount
   React.useEffect(() => {
-    const fetchHabits = async () => {
-      const { data, error } = await supabase
+    const fetchInitialData = async () => {
+      // Fetch habits
+      const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error("Error fetching habits for DailyEntries:", error);
+      if (habitsError) {
+        console.error("Error fetching habits for DailyEntries:", habitsError);
         showError("Failed to load habits for tracking.");
       } else {
-        const mappedHabits = (data || []).map(mapSupabaseHabitToHabit);
+        const mappedHabits = (habitsData || []).map(mapSupabaseHabitToHabit);
         setHabits(mappedHabits);
       }
+
+      // Fetch app settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('app_settings')
+        .select('*')
+        .limit(1)
+        .single();
+
+      if (settingsError && settingsError.code !== 'PGRST116') {
+        console.error("Error fetching app settings:", settingsError);
+        showError("Failed to load app settings.");
+      } else if (settingsData) {
+        setAppSettings(settingsData);
+      }
     };
-    fetchHabits();
+    fetchInitialData();
   }, []);
 
   // Effect to load journal entry, daily tracking, yearly progress, and weekly/monthly counts for selected date from Supabase
@@ -119,11 +142,14 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         setYearlyOutOfControlMissCounts({});
         setWeeklyTrackingCounts({});
         setMonthlyTrackingCounts({});
+        setCurrentWeekOffRecord(null); // Reset week off record
+        setUsedWeekOffsCount(0); // Reset used week offs
         return;
       }
 
       const selectedDate = new Date(entryDate);
       const currentYear = selectedDate.getFullYear().toString();
+      const currentWeekNumber = getISOWeek(selectedDate);
 
       // Fetch daily entry
       const { data: entryData, error: entryError } = await supabase
@@ -205,6 +231,23 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         setYearlyOutOfControlMissCounts(newMissCounts);
       }
 
+      // Fetch current week off record and total used week offs for the year
+      const { data: weekOffsData, error: weekOffsError } = await supabase
+        .from('weekly_offs')
+        .select('*')
+        .eq('year', currentYear);
+
+      if (weekOffsError) {
+        console.error("Error fetching weekly offs:", weekOffsError);
+        showError("Failed to load weekly off data.");
+        setCurrentWeekOffRecord(null);
+        setUsedWeekOffsCount(0);
+      } else {
+        const currentWeekOff = weekOffsData.find(wo => wo.week_number === currentWeekNumber && wo.is_off);
+        setCurrentWeekOffRecord(currentWeekOff || null);
+        setUsedWeekOffsCount(weekOffsData.filter(wo => wo.is_off).length);
+      }
+
       // --- Calculate Weekly and Monthly Tracking Counts ---
       const startOfCurrentWeek = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd'); // Monday start
       const endOfCurrentWeek = format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
@@ -227,9 +270,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           if (!calculatedWeeklyCounts[record.habit_id]) {
             calculatedWeeklyCounts[record.habit_id] = {};
           }
-          record.tracked_values.forEach(value => {
-            calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
-          });
+          // Only count if not a "WEEK_OFF" entry
+          if (!record.tracked_values.includes("WEEK_OFF")) {
+            record.tracked_values.forEach(value => {
+              calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+            });
+          }
         });
         setWeeklyTrackingCounts(calculatedWeeklyCounts);
       }
@@ -250,9 +296,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           if (!calculatedMonthlyCounts[record.habit_id]) {
             calculatedMonthlyCounts[record.habit_id] = {};
           }
-          record.tracked_values.forEach(value => {
-            calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
-          });
+          // Only count if not a "WEEK_OFF" entry
+          if (!record.tracked_values.includes("WEEK_OFF")) {
+            record.tracked_values.forEach(value => {
+              calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+            });
+          }
         });
         setMonthlyTrackingCounts(calculatedMonthlyCounts);
       }
@@ -320,6 +369,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     isOutOfControlMiss: boolean,
     oldIsOutOfControlMiss: boolean,
   ) => {
+    // If the current week is marked off, prevent individual habit tracking updates
+    if (currentWeekOffRecord?.is_off) {
+      showError("This week is marked as 'Week Off'. Individual habit tracking is disabled.");
+      return;
+    }
+
     // Update daily tracking in Supabase
     const dailyTrackingRecord = {
       date: date,
@@ -420,9 +475,11 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         if (!calculatedWeeklyCounts[record.habit_id]) {
           calculatedWeeklyCounts[record.habit_id] = {};
         }
-        record.tracked_values.forEach(value => {
-          calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
-        });
+        if (!record.tracked_values.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
+          record.tracked_values.forEach(value => {
+            calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+          });
+        }
       });
       setWeeklyTrackingCounts(calculatedWeeklyCounts);
     }
@@ -439,17 +496,134 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         if (!calculatedMonthlyCounts[record.habit_id]) {
           calculatedMonthlyCounts[record.habit_id] = {};
         }
-        record.tracked_values.forEach(value => {
-          calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
-        });
+        if (!record.tracked_values.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
+          record.tracked_values.forEach(value => {
+            calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+          });
+        }
       });
       setMonthlyTrackingCounts(calculatedMonthlyCounts);
     }
   };
 
+  const handleToggleWeekOff = async (checked: boolean) => {
+    if (!entryDate || !isMonday(new Date(entryDate))) {
+      showError("You can only mark a week off starting on a Monday.");
+      return;
+    }
+
+    setIsWeekOffLoading(true);
+    const selectedDate = new Date(entryDate);
+    const currentYear = selectedDate.getFullYear().toString();
+    const currentWeekNumber = getISOWeek(selectedDate);
+    const startOfCurrentWeek = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const endOfCurrentWeek = endOfWeek(selectedDate, { weekStartsOn: 1 });
+    const daysInWeek = eachDayOfInterval({ start: startOfCurrentWeek, end: endOfCurrentWeek });
+
+    const allowedWeekOffs = appSettings?.yearly_week_offs_allowed || 0;
+
+    if (checked) {
+      // Mark week off
+      if (usedWeekOffsCount >= allowedWeekOffs) {
+        showError(`You have used all ${allowedWeekOffs} allowed yearly week offs.`);
+        setIsWeekOffLoading(false);
+        return;
+      }
+
+      // Insert/update weekly_offs record
+      const { error: upsertWeekOffError } = await supabase
+        .from('weekly_offs')
+        .upsert({
+          year: currentYear,
+          week_number: currentWeekNumber,
+          is_off: true,
+        }, { onConflict: 'year,week_number' });
+
+      if (upsertWeekOffError) {
+        console.error("Error marking week off:", upsertWeekOffError);
+        showError("Failed to mark week off.");
+        setIsWeekOffLoading(false);
+        return;
+      }
+
+      // Update daily_habit_tracking for all habits for all days in the week
+      const trackingRecordsToUpsert = [];
+      for (const day of daysInWeek) {
+        const formattedDay = format(day, 'yyyy-MM-dd');
+        for (const habit of habits) {
+          trackingRecordsToUpsert.push({
+            date: formattedDay,
+            habit_id: habit.id,
+            tracked_values: ["WEEK_OFF"],
+            is_out_of_control_miss: false,
+          });
+        }
+      }
+
+      if (trackingRecordsToUpsert.length > 0) {
+        const { error: upsertTrackingError } = await supabase
+          .from('daily_habit_tracking')
+          .upsert(trackingRecordsToUpsert, { onConflict: 'date,habit_id' });
+
+        if (upsertTrackingError) {
+          console.error("Error updating daily tracking for week off:", upsertTrackingError);
+          showError("Failed to update habit tracking for week off.");
+          setIsWeekOffLoading(false);
+          return;
+        }
+      }
+
+      showSuccess(`Week ${currentWeekNumber} marked as 'Week Off' for all habits!`);
+      setCurrentWeekOffRecord({ id: 'temp', year: currentYear, week_number: currentWeekNumber, is_off: true, created_at: new Date().toISOString() });
+      setUsedWeekOffsCount(prev => prev + 1);
+      // Re-fetch data for the current date to reflect changes in habit cards
+      fetchDataForDate();
+
+    } else {
+      // Unmark week off
+      const { error: deleteWeekOffError } = await supabase
+        .from('weekly_offs')
+        .delete()
+        .eq('year', currentYear)
+        .eq('week_number', currentWeekNumber);
+
+      if (deleteWeekOffError) {
+        console.error("Error unmarking week off:", deleteWeekOffError);
+        showError("Failed to unmark week off.");
+        setIsWeekOffLoading(false);
+        return;
+      }
+
+      // Delete all "WEEK_OFF" daily_habit_tracking records for this week
+      const datesInWeek = daysInWeek.map(day => format(day, 'yyyy-MM-dd'));
+      const { error: deleteTrackingError } = await supabase
+        .from('daily_habit_tracking')
+        .delete()
+        .in('date', datesInWeek)
+        .contains('tracked_values', ['WEEK_OFF']); // Only delete records explicitly marked "WEEK_OFF"
+
+      if (deleteTrackingError) {
+        console.error("Error deleting daily tracking for unmark week off:", deleteTrackingError);
+        showError("Failed to clear habit tracking for unmarking week off.");
+        setIsWeekOffLoading(false);
+        return;
+      }
+
+      showSuccess(`Week ${currentWeekNumber} unmarked. Habit tracking is now active.`);
+      setCurrentWeekOffRecord(null);
+      setUsedWeekOffsCount(prev => Math.max(0, prev - 1));
+      // Re-fetch data for the current date to reflect changes in habit cards
+      fetchDataForDate();
+    }
+    setIsWeekOffLoading(false);
+  };
+
   const handleSetupHabitClick = () => {
     setActiveTab("setup");
   };
+
+  const isCurrentDateMonday = isMonday(new Date(entryDate));
+  const remainingWeekOffs = (appSettings?.yearly_week_offs_allowed || 0) - usedWeekOffsCount;
 
   return (
     <div id="daily" className="tab-content text-center">
@@ -458,6 +632,21 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         Select a date to begin your entry.
       </p>
       <div className="flex flex-col items-center justify-center mb-6">
+        {isCurrentDateMonday && appSettings && (
+          <div className="flex items-center justify-between w-full max-w-sm mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <label htmlFor="take-week-off-switch" className="flex-grow text-sm font-medium text-blue-800 text-left cursor-pointer">
+              Take this week off
+              <p className="text-xs text-blue-600">({remainingWeekOffs} / {appSettings.yearly_week_offs_allowed} remaining this year)</p>
+            </label>
+            <Switch
+              id="take-week-off-switch"
+              checked={currentWeekOffRecord?.is_off || false}
+              onCheckedChange={handleToggleWeekOff}
+              disabled={isWeekOffLoading || (!currentWeekOffRecord?.is_off && remainingWeekOffs <= 0)}
+            />
+          </div>
+        )}
+
         <label htmlFor="entry-date" className="block text-sm font-medium text-gray-700 mb-2">Date</label>
         <input
           type="date"
@@ -511,6 +700,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                 : null;
               const initialIsOutOfControlMiss = entryDate && dailyTracking[entryDate]?.[habit.id]?.isOutOfControlMiss || false;
 
+              // Determine if this specific day is part of a "week off"
+              const isWeekOffForThisDay = initialTrackedValue === "WEEK_OFF";
+
               return (
                 <DailyHabitTrackerCard
                   key={habit.id}
@@ -523,6 +715,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
                   weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
                   monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
+                  isWeekOffForThisDay={isWeekOffForThisDay} // Pass the new prop
                 />
               );
             })}
