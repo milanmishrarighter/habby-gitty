@@ -5,7 +5,7 @@ import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal";
-import { showSuccess, showError } from "@/utils/toast";
+import { showSuccess, showError, showInfo, dismissToast } from "@/utils/toast"; // Updated import
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
@@ -13,6 +13,7 @@ import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount 
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns'; // Import date-fns utilities
+import { cn } from "@/lib/utils"; // Import cn for conditional classNames
 
 interface DailyEntriesProps {
   setActiveTab: (tab: string) => void;
@@ -42,6 +43,49 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
   const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
   const [pendingEntry, setPendingEntry] = React.useState<Omit<DailyEntry, 'id'> | null>(null);
+
+  const [highlightDate, setHighlightDate] = React.useState(false);
+  const toastIdRef = React.useRef<string | number | null>(null);
+
+  // Effect to set default date, highlight, and show hint
+  React.useEffect(() => {
+    const fetchLastEntryDate = async () => {
+      const { data: latestEntry, error } = await supabase
+        .from('daily_entries')
+        .select('date')
+        .order('date', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 means "no rows found"
+        console.error("Error fetching latest daily entry date:", error);
+        showError("Failed to load last entry date.");
+        setEntryDate(getTodayDate()); // Fallback to today
+      } else if (latestEntry) {
+        setEntryDate(latestEntry.date);
+      } else {
+        setEntryDate(getTodayDate()); // No entries found, default to today
+      }
+
+      // Highlight the date field
+      setHighlightDate(true);
+      const highlightTimer = setTimeout(() => {
+        setHighlightDate(false);
+      }, 3000); // Highlight for 3 seconds
+
+      // Show temporary hint toast
+      toastIdRef.current = showInfo("Choose the date first", 5000);
+
+      return () => {
+        clearTimeout(highlightTimer);
+        if (toastIdRef.current) {
+          dismissToast(toastIdRef.current);
+        }
+      };
+    };
+
+    fetchLastEntryDate();
+  }, []); // Run once on mount
 
   // Load habits from Supabase on component mount
   React.useEffect(() => {
@@ -177,7 +221,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         console.error("Error fetching weekly tracking records:", weeklyError);
         showError("Failed to load weekly tracking data.");
       } else {
-        const calculatedWeeklyCounts: { [habitId: string]: { [trackingValue: string]: number } } = {};
+        const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
         weeklyRecords.forEach(record => {
           if (!calculatedWeeklyCounts[record.habit_id]) {
             calculatedWeeklyCounts[record.habit_id] = {};
@@ -200,7 +244,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         console.error("Error fetching monthly tracking records:", monthlyError);
         showError("Failed to load monthly tracking data.");
       } else {
-        const calculatedMonthlyCounts: { [habitId: string]: { [trackingValue: string]: number } } = {};
+        const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
         monthlyRecords.forEach(record => {
           if (!calculatedMonthlyCounts[record.habit_id]) {
             calculatedMonthlyCounts[record.habit_id] = {};
@@ -417,7 +461,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         <input
           type="date"
           id="entry-date"
-          className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className={cn(
+            "mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full",
+            highlightDate && "ring-4 ring-blue-300 transition-all duration-500 ease-out"
+          )}
           value={entryDate}
           onChange={(e) => setEntryDate(e.target.value)}
         />
