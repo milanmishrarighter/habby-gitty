@@ -124,7 +124,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         console.error("Error fetching app settings:", settingsError);
         showError("Failed to load app settings.");
       } else if (settingsData) {
-        setAppSettings(settingsData);
+        setAppSettings(settingsData as AppSettings); // Cast to new AppSettings interface
       }
     };
     fetchInitialData();
@@ -520,7 +520,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     const endOfCurrentWeek = endOfWeek(selectedDate, { weekStartsOn: 1 });
     const daysInWeek = eachDayOfInterval({ start: startOfCurrentWeek, end: endOfCurrentWeek });
 
-    const allowedWeekOffs = appSettings?.yearly_week_offs_allowed || 0;
+    const allowedWeekOffs = appSettings?.settings_data?.yearly_week_offs_allowed || 0; // Access from settings_data
 
     if (checked) {
       // Mark week off
@@ -623,7 +623,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   };
 
   const isCurrentDateMonday = isMonday(new Date(entryDate));
-  const remainingWeekOffs = (appSettings?.yearly_week_offs_allowed || 0) - usedWeekOffsCount;
+  const remainingWeekOffs = (appSettings?.settings_data?.yearly_week_offs_allowed || 0) - usedWeekOffsCount; // Access from settings_data
 
   return (
     <div id="daily" className="tab-content text-center">
@@ -636,7 +636,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           <div className="flex items-center justify-between w-full max-w-sm mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <label htmlFor="take-week-off-switch" className="flex-grow text-sm font-medium text-blue-800 text-left cursor-pointer">
               Take this week off
-              <p className="text-xs text-blue-600">({remainingWeekOffs} / {appSettings.yearly_week_offs_allowed} remaining this year)</p>
+              <p className="text-xs text-blue-600">({remainingWeekOffs} / {appSettings.settings_data.yearly_week_offs_allowed} remaining this year)</p>
             </label>
             <Switch
               id="take-week-off-switch"

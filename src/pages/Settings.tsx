@@ -12,6 +12,7 @@ import { AppSettings } from "@/types/appSettings";
 const Settings: React.FC = () => {
   const [yearlyWeekOffsAllowed, setYearlyWeekOffsAllowed] = React.useState<number | "">(0);
   const [settingsId, setSettingsId] = React.useState<string | null>(null);
+  const [allSettingsData, setAllSettingsData] = React.useState<Record<string, any>>({}); // To hold all settings from JSONB
   const [isLoading, setIsLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -27,8 +28,9 @@ const Settings: React.FC = () => {
         console.error("Error fetching app settings:", error);
         showError("Failed to load app settings.");
       } else if (data) {
-        setYearlyWeekOffsAllowed(data.yearly_week_offs_allowed);
         setSettingsId(data.id);
+        setAllSettingsData(data.settings_data || {});
+        setYearlyWeekOffsAllowed(data.settings_data?.yearly_week_offs_allowed || 0);
       }
       setIsLoading(false);
     };
@@ -42,7 +44,9 @@ const Settings: React.FC = () => {
     }
 
     setIsLoading(true);
-    const settingsToSave = {
+
+    const updatedSettingsData = {
+      ...allSettingsData, // Keep existing settings
       yearly_week_offs_allowed: yearlyWeekOffsAllowed,
     };
 
@@ -51,14 +55,14 @@ const Settings: React.FC = () => {
       // Update existing settings
       const { error: updateError } = await supabase
         .from('app_settings')
-        .update(settingsToSave)
+        .update({ settings_data: updatedSettingsData })
         .eq('id', settingsId);
       error = updateError;
     } else {
       // Insert new settings (first time)
       const { data, error: insertError } = await supabase
         .from('app_settings')
-        .insert([settingsToSave])
+        .insert([{ settings_data: updatedSettingsData }])
         .select();
       error = insertError;
       if (data && data.length > 0) {
@@ -70,6 +74,7 @@ const Settings: React.FC = () => {
       console.error("Error saving app settings:", error);
       showError("Failed to save settings.");
     } else {
+      setAllSettingsData(updatedSettingsData); // Update local state with new merged data
       showSuccess("Settings saved successfully!");
     }
     setIsLoading(false);
