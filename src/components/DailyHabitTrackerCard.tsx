@@ -236,6 +236,10 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
         </div>
       </div>
 
+      {habit.hintText && (
+        <p className="text-sm text-gray-600 italic text-left -mt-2">{habit.hintText}</p>
+      )}
+
       {isWeekOffForThisDay ? (
         <div className="dotted-border-container py-6">
           <p className="text-lg font-semibold text-blue-700">Week Off!</p>

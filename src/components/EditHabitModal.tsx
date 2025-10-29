@@ -33,6 +33,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
   const [yearlyGoalCount, setYearlyGoalCount] = React.useState<number | "">("");
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
   const [allowedOutOfControlMisses, setAllowedOutOfControlMisses] = React.useState<number | "">(""); // New state
+  const [hintText, setHintText] = React.useState(""); // New state for hint text
 
   // Populate form fields when modal opens or initialHabit changes
   React.useEffect(() => {
@@ -50,6 +51,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       setYearlyGoalCount(initialHabit.yearlyGoal?.count === 0 ? "" : initialHabit.yearlyGoal?.count || ""); // Defensive check
       setContributingValues(initialHabit.yearlyGoal?.contributingValues || []); // Defensive check
       setAllowedOutOfControlMisses(initialHabit.allowedOutOfControlMisses === 0 ? "" : initialHabit.allowedOutOfControlMisses); // Set new field
+      setHintText(initialHabit.hintText || ""); // Set new field
     } else {
       // Reset form if no initial habit (e.g., closing modal)
       setHabitName("");
@@ -61,6 +63,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       setYearlyGoalCount("");
       setContributingValues([]);
       setAllowedOutOfControlMisses(""); // Reset new field
+      setHintText(""); // Reset new field
     }
   }, [initialHabit]);
 
@@ -132,6 +135,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
         contributingValues: contributingValues,
       },
       allowedOutOfControlMisses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0, // Save new field
+      hintText: hintText.trim(), // Save new field
       // created_at remains the same
     };
 
@@ -162,6 +166,19 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
               value={habitName}
               onChange={(e) => setHabitName(e.target.value)}
             />
+          </div>
+          {/* Hint Text Input */}
+          <div className="w-full">
+            <label htmlFor="hint-text-edit" className="block text-sm font-medium text-gray-700 text-left">Hint Text (Optional)</label>
+            <input
+              type="text"
+              id="hint-text-edit"
+              placeholder="e.g., This habit needs 5 'Yes's"
+              className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
+              value={hintText}
+              onChange={(e) => setHintText(e.target.value)}
+            />
+            <p className="text-xs text-gray-500 mt-1 text-left">A short reminder for this habit, displayed on the Daily Entries page.</p>
           </div>
           {/* Color Picker Input */}
           <div className="w-full">

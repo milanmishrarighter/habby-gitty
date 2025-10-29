@@ -30,6 +30,7 @@ const HabitSetup: React.FC = () => {
   const [yearlyGoalCount, setYearlyGoalCount] = React.useState<number | "">("");
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
   const [allowedOutOfControlMisses, setAllowedOutOfControlMisses] = React.useState<number | "">(""); // New state for allowed misses
+  const [hintText, setHintText] = React.useState(""); // New state for hint text
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
@@ -82,6 +83,7 @@ const HabitSetup: React.FC = () => {
     setYearlyGoalCount("");
     setContributingValues([]);
     setAllowedOutOfControlMisses(""); // Reset new field
+    setHintText(""); // Reset new field
   };
 
   const handleAddNewTrackingValue = () => {
@@ -149,6 +151,7 @@ const HabitSetup: React.FC = () => {
         contributingValues: contributingValues, // Stored as camelCase in JSONB
       },
       allowed_out_of_control_misses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0, // New field
+      hint_text: hintText.trim(), // New field
     };
 
     setIsLoading(true);
@@ -174,7 +177,7 @@ const HabitSetup: React.FC = () => {
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
-    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, created_at } = updatedHabit;
+    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, hintText, created_at } = updatedHabit;
     const updatedHabitData = {
       name,
       color,
@@ -183,6 +186,7 @@ const HabitSetup: React.FC = () => {
       fine_amount: fineAmount, // Convert to snake_case
       yearly_goal: yearlyGoal, // Stored as camelCase in JSONB
       allowed_out_of_control_misses: allowedOutOfControlMisses, // New field
+      hint_text: hintText, // New field
       created_at,
     };
 
@@ -316,6 +320,19 @@ const HabitSetup: React.FC = () => {
             value={habitName}
             onChange={(e) => setHabitName(e.target.value)}
           />
+        </div>
+        {/* Hint Text Input */}
+        <div className="w-full max-w-sm">
+          <label htmlFor="hint-text" className="block text-sm font-medium text-gray-700 text-left">Hint Text (Optional)</label>
+          <input
+            type="text"
+            id="hint-text"
+            placeholder="e.g., This habit needs 5 'Yes's"
+            className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
+            value={hintText}
+            onChange={(e) => setHintText(e.target.value)}
+          />
+          <p className="text-xs text-gray-500 mt-1 text-left">A short reminder for this habit, displayed on the Daily Entries page.</p>
         </div>
         {/* Color Picker Input */}
         <div className="w-full max-w-sm">
