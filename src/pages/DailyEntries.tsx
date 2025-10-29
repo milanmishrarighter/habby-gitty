@@ -462,7 +462,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           type="date"
           id="entry-date"
           className={cn(
-            "mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full",
+            "mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full max-w-sm", // Added max-w-sm here
             highlightDate && "ring-4 ring-blue-300 transition-all duration-500 ease-out"
           )}
           value={entryDate}
