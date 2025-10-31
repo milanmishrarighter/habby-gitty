@@ -71,7 +71,7 @@ const Settings: React.FC = () => {
     }
 
     if (error) {
-      console.error("Error saving app settings:", error);
+      console.error("Error saving app settings:", error); // Log the full error object
       showError("Failed to save settings.");
     } else {
       setAllSettingsData(updatedSettingsData); // Update local state with new merged data
