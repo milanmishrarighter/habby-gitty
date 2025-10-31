@@ -112,7 +112,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     });
 
     return () => {
-      authListener?.unsubscribe();
+      // Corrected unsubscribe call
+      authListener?.subscription.unsubscribe();
     };
   }, []); // Empty dependency array to run once on mount and listen for changes
 
