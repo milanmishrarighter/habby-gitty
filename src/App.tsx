@@ -5,21 +5,66 @@ import RecordedEntries from "./pages/RecordedEntries";
 import Fines from "./pages/Fines";
 import HabitSetup from "./pages/HabitSetup";
 import YearlyAnalytics from "./pages/YearlyAnalytics";
-import Settings from "./pages/Settings"; // Import the new Settings page
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import SupabaseConnectionStatus from "@/components/SupabaseConnectionStatus";
 import VersionDisplay from "@/components/VersionDisplay";
+import AuthForm from "@/components/AuthForm"; // Import AuthForm
+import UserMenu from "@/components/UserMenu"; // Import UserMenu
+import { supabase } from "@/lib/supabase"; // Import supabase client
+import { Session } from "@supabase/supabase-js"; // Import Session type
 
 const App = () => {
   const [activeTab, setActiveTab] = React.useState("daily");
+  const [session, setSession] = React.useState<Session | null>(null);
+  const [loadingSession, setLoadingSession] = React.useState(true);
+
+  React.useEffect(() => {
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setLoadingSession(false);
+    };
+
+    getSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
+    return () => {
+      authListener?.unsubscribe();
+    };
+  }, []);
+
+  if (loadingSession) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <p className="text-lg text-gray-600">Loading application...</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <>
+        <Sonner />
+        <AuthForm />
+      </>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center relative">
       <VersionDisplay version="1.2.0" />
       <Sonner />
       <div className="w-full max-w-4xl p-4 sm:p-6 lg:p-8 bg-white shadow-xl rounded-2xl my-8">
-        <SupabaseConnectionStatus />
+        <div className="flex justify-between items-center mb-4">
+          <SupabaseConnectionStatus />
+          {session?.user?.email && <UserMenu userEmail={session.user.email} />}
+        </div>
 
         <header className="text-center mb-6">
           <h1 className="text-4xl font-extrabold text-gray-800 tracking-tight">Daily Journal and Tracker</h1>
