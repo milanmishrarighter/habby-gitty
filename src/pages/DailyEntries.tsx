@@ -112,7 +112,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     });
 
     return () => {
-      // Corrected unsubscribe call
       authListener?.subscription.unsubscribe();
     };
   }, []); // Empty dependency array to run once on mount and listen for changes
@@ -152,183 +151,184 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   }, []);
 
   // Effect to load journal entry, daily tracking, yearly progress, and weekly/monthly counts for selected date from Supabase
+  const fetchDataForDate = React.useCallback(async () => {
+    if (!entryDate) {
+      setJournalText("");
+      setMoodEmoji("😊");
+      setCurrentEntryId(null);
+      setDailyTracking({});
+      setYearlyProgress({});
+      setYearlyOutOfControlMissCounts({});
+      setWeeklyTrackingCounts({});
+      setMonthlyTrackingCounts({});
+      setCurrentWeekOffRecord(null); // Reset week off record
+      setUsedWeekOffsCount(0); // Reset used week offs
+      return;
+    }
+
+    const selectedDate = new Date(entryDate);
+    const currentYear = selectedDate.getFullYear().toString();
+    const currentWeekNumber = getISOWeek(selectedDate);
+
+    // Fetch daily entry
+    const { data: entryData, error: entryError } = await supabase
+      .from('daily_entries')
+      .select('*')
+      .eq('date', entryDate)
+      .single();
+
+    if (entryError && entryError.code !== 'PGRST116') {
+      console.error("Error fetching daily entry:", entryError);
+      showError("Failed to load daily entry.");
+      setJournalText("");
+      setMoodEmoji("😊");
+      setCurrentEntryId(null);
+    } else if (entryData) {
+      setJournalText(entryData.text);
+      setMoodEmoji(entryData.mood);
+      setCurrentEntryId(entryData.id);
+    } else {
+      setJournalText("");
+      setMoodEmoji("😊");
+      setCurrentEntryId(null);
+    }
+
+    // Fetch daily habit tracking for the selected date
+    const { data: trackingData, error: trackingError } = await supabase
+      .from('daily_habit_tracking')
+      .select('*')
+      .eq('date', entryDate);
+
+    if (trackingError) {
+      console.error("Error fetching daily tracking:", trackingError);
+      showError("Failed to load daily habit tracking.");
+      setDailyTracking({});
+    } else {
+      const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = { [entryDate]: {} };
+      trackingData.forEach(record => {
+        newDailyTracking[entryDate][record.habit_id] = {
+          trackedValues: record.tracked_values,
+          isOutOfControlMiss: record.is_out_of_control_miss,
+        };
+      });
+      setDailyTracking(newDailyTracking);
+    }
+
+    // Fetch yearly progress for the current year
+    const { data: yearlyProgressData, error: yearlyProgressError } = await supabase
+      .from('yearly_habit_progress')
+      .select('*')
+      .eq('year', currentYear);
+
+    if (yearlyProgressError) {
+      console.error("Error fetching yearly progress:", yearlyProgressError);
+      showError("Failed to load yearly habit progress.");
+      setYearlyProgress({});
+    } else {
+      const newYearlyProgress: { [year: string]: { [habitId: string]: number } } = { [currentYear]: {} };
+      yearlyProgressData.forEach(record => {
+        newYearlyProgress[currentYear][record.habit_id] = record.progress_count;
+      });
+      setYearlyProgress(newYearlyProgress);
+    }
+
+    // Fetch yearly out-of-control miss counts for the current year
+    const { data: missCountsData, error: missCountsError } = await supabase
+      .from('yearly_out_of_control_miss_counts')
+      .select('*')
+      .eq('year', currentYear);
+
+    if (missCountsError) {
+      console.error("Error fetching yearly out-of-control miss counts:", missCountsError);
+      showError("Failed to load out-of-control miss counts.");
+      setYearlyOutOfControlMissCounts({});
+    } else {
+      const newMissCounts: { [habitId: string]: YearlyOutOfControlMissCount } = {};
+      missCountsData.forEach(record => {
+        newMissCounts[record.habit_id] = record;
+      });
+      setYearlyOutOfControlMissCounts(newMissCounts);
+    }
+
+    // Fetch current week off record and total used week offs for the year
+    const { data: weekOffsData, error: weekOffsError } = await supabase
+      .from('weekly_offs')
+      .select('*')
+      .eq('year', currentYear);
+
+    if (weekOffsError) {
+      console.error("Error fetching weekly offs:", weekOffsError);
+      showError("Failed to load weekly off data.");
+      setCurrentWeekOffRecord(null);
+      setUsedWeekOffsCount(0);
+    } else {
+      const currentWeekOff = weekOffsData.find(wo => wo.week_number === currentWeekNumber && wo.is_off);
+      setCurrentWeekOffRecord(currentWeekOff || null);
+      setUsedWeekOffsCount(weekOffsData.filter(wo => wo.is_off).length);
+    }
+
+    // --- Calculate Weekly and Monthly Tracking Counts ---
+    const startOfCurrentWeek = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd'); // Monday start
+    const endOfCurrentWeek = format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const startOfCurrentMonth = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
+    const endOfCurrentMonth = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
+
+    // Fetch all tracking records for the current week
+    const { data: weeklyRecords, error: weeklyError } = await supabase
+      .from('daily_habit_tracking')
+      .select('*')
+      .gte('date', startOfCurrentWeek)
+      .lte('date', endOfCurrentWeek);
+
+    if (weeklyError) {
+      console.error("Error fetching weekly tracking records:", weeklyError);
+      showError("Failed to load weekly tracking data.");
+    } else {
+      const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
+      weeklyRecords.forEach(record => {
+        if (!calculatedWeeklyCounts[record.habit_id]) {
+          calculatedWeeklyCounts[record.habit_id] = {};
+        }
+        // Only count if not a "WEEK_OFF" entry
+        if (!record.tracked_values.includes("WEEK_OFF")) {
+          record.tracked_values.forEach(value => {
+            calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+          });
+        }
+      });
+      setWeeklyTrackingCounts(calculatedWeeklyCounts);
+    }
+
+    // Fetch all tracking records for the current month
+    const { data: monthlyRecords, error: monthlyError } = await supabase
+      .from('daily_habit_tracking')
+      .select('*')
+      .gte('date', startOfCurrentMonth)
+      .lte('date', endOfCurrentMonth);
+
+    if (monthlyError) {
+      console.error("Error fetching monthly tracking records:", monthlyError);
+      showError("Failed to load monthly tracking data.");
+    } else {
+      const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
+      monthlyRecords.forEach(record => {
+        if (!calculatedMonthlyCounts[record.habit_id]) {
+          calculatedMonthlyCounts[record.habit_id] = {};
+        }
+        // Only count if not a "WEEK_OFF" entry
+        if (!record.tracked_values.includes("WEEK_OFF")) {
+          record.tracked_values.forEach(value => {
+            calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+          });
+        }
+      });
+      setMonthlyTrackingCounts(calculatedMonthlyCounts);
+    }
+  }, [entryDate, habits, appSettings]); // Added habits and appSettings to dependencies
+
   React.useEffect(() => {
-    const fetchDataForDate = async () => {
-      if (!entryDate) {
-        setJournalText("");
-        setMoodEmoji("😊");
-        setCurrentEntryId(null);
-        setDailyTracking({});
-        setYearlyProgress({});
-        setYearlyOutOfControlMissCounts({});
-        setWeeklyTrackingCounts({});
-        setMonthlyTrackingCounts({});
-        setCurrentWeekOffRecord(null); // Reset week off record
-        setUsedWeekOffsCount(0); // Reset used week offs
-        return;
-      }
-
-      const selectedDate = new Date(entryDate);
-      const currentYear = selectedDate.getFullYear().toString();
-      const currentWeekNumber = getISOWeek(selectedDate);
-
-      // Fetch daily entry
-      const { data: entryData, error: entryError } = await supabase
-        .from('daily_entries')
-        .select('*')
-        .eq('date', entryDate)
-        .single();
-
-      if (entryError && entryError.code !== 'PGRST116') {
-        console.error("Error fetching daily entry:", entryError);
-        showError("Failed to load daily entry.");
-        setJournalText("");
-        setMoodEmoji("😊");
-        setCurrentEntryId(null);
-      } else if (entryData) {
-        setJournalText(entryData.text);
-        setMoodEmoji(entryData.mood);
-        setCurrentEntryId(entryData.id);
-      } else {
-        setJournalText("");
-        setMoodEmoji("😊");
-        setCurrentEntryId(null);
-      }
-
-      // Fetch daily habit tracking for the selected date
-      const { data: trackingData, error: trackingError } = await supabase
-        .from('daily_habit_tracking')
-        .select('*')
-        .eq('date', entryDate);
-
-      if (trackingError) {
-        console.error("Error fetching daily tracking:", trackingError);
-        showError("Failed to load daily habit tracking.");
-        setDailyTracking({});
-      } else {
-        const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = { [entryDate]: {} };
-        trackingData.forEach(record => {
-          newDailyTracking[entryDate][record.habit_id] = {
-            trackedValues: record.tracked_values,
-            isOutOfControlMiss: record.is_out_of_control_miss,
-          };
-        });
-        setDailyTracking(newDailyTracking);
-      }
-
-      // Fetch yearly progress for the current year
-      const { data: yearlyProgressData, error: yearlyProgressError } = await supabase
-        .from('yearly_habit_progress')
-        .select('*')
-        .eq('year', currentYear);
-
-      if (yearlyProgressError) {
-        console.error("Error fetching yearly progress:", yearlyProgressError);
-        showError("Failed to load yearly habit progress.");
-        setYearlyProgress({});
-      } else {
-        const newYearlyProgress: { [year: string]: { [habitId: string]: number } } = { [currentYear]: {} };
-        yearlyProgressData.forEach(record => {
-          newYearlyProgress[currentYear][record.habit_id] = record.progress_count;
-        });
-        setYearlyProgress(newYearlyProgress);
-      }
-
-      // Fetch yearly out-of-control miss counts for the current year
-      const { data: missCountsData, error: missCountsError } = await supabase
-        .from('yearly_out_of_control_miss_counts')
-        .select('*')
-        .eq('year', currentYear);
-
-      if (missCountsError) {
-        console.error("Error fetching yearly out-of-control miss counts:", missCountsError);
-        showError("Failed to load out-of-control miss counts.");
-        setYearlyOutOfControlMissCounts({});
-      } else {
-        const newMissCounts: { [habitId: string]: YearlyOutOfControlMissCount } = {};
-        missCountsData.forEach(record => {
-          newMissCounts[record.habit_id] = record;
-        });
-        setYearlyOutOfControlMissCounts(newMissCounts);
-      }
-
-      // Fetch current week off record and total used week offs for the year
-      const { data: weekOffsData, error: weekOffsError } = await supabase
-        .from('weekly_offs')
-        .select('*')
-        .eq('year', currentYear);
-
-      if (weekOffsError) {
-        console.error("Error fetching weekly offs:", weekOffsError);
-        showError("Failed to load weekly off data.");
-        setCurrentWeekOffRecord(null);
-        setUsedWeekOffsCount(0);
-      } else {
-        const currentWeekOff = weekOffsData.find(wo => wo.week_number === currentWeekNumber && wo.is_off);
-        setCurrentWeekOffRecord(currentWeekOff || null);
-        setUsedWeekOffsCount(weekOffsData.filter(wo => wo.is_off).length);
-      }
-
-      // --- Calculate Weekly and Monthly Tracking Counts ---
-      const startOfCurrentWeek = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd'); // Monday start
-      const endOfCurrentWeek = format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
-      const startOfCurrentMonth = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
-      const endOfCurrentMonth = format(endOfMonth(selectedDate), 'yyyy-MM-dd');
-
-      // Fetch all tracking records for the current week
-      const { data: weeklyRecords, error: weeklyError } = await supabase
-        .from('daily_habit_tracking')
-        .select('*')
-        .gte('date', startOfCurrentWeek)
-        .lte('date', endOfCurrentWeek);
-
-      if (weeklyError) {
-        console.error("Error fetching weekly tracking records:", weeklyError);
-        showError("Failed to load weekly tracking data.");
-      } else {
-        const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
-        weeklyRecords.forEach(record => {
-          if (!calculatedWeeklyCounts[record.habit_id]) {
-            calculatedWeeklyCounts[record.habit_id] = {};
-          }
-          // Only count if not a "WEEK_OFF" entry
-          if (!record.tracked_values.includes("WEEK_OFF")) {
-            record.tracked_values.forEach(value => {
-              calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
-            });
-          }
-        });
-        setWeeklyTrackingCounts(calculatedWeeklyCounts);
-      }
-
-      // Fetch all tracking records for the current month
-      const { data: monthlyRecords, error: monthlyError } = await supabase
-        .from('daily_habit_tracking')
-        .select('*')
-        .gte('date', startOfCurrentMonth)
-        .lte('date', endOfCurrentMonth);
-
-      if (monthlyError) {
-        console.error("Error fetching monthly tracking records:", monthlyError);
-        showError("Failed to load monthly tracking data.");
-      } else {
-        const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
-        monthlyRecords.forEach(record => {
-          if (!calculatedMonthlyCounts[record.habit_id]) {
-            calculatedMonthlyCounts[record.habit_id] = {};
-          }
-          // Only count if not a "WEEK_OFF" entry
-          if (!record.tracked_values.includes("WEEK_OFF")) {
-            record.tracked_values.forEach(value => {
-              calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
-            });
-          }
-        });
-        setMonthlyTrackingCounts(calculatedMonthlyCounts);
-      }
-    };
     fetchDataForDate();
-  }, [entryDate]);
+  }, [entryDate, fetchDataForDate]);
 
 
   const saveEntry = async (overwrite: boolean = false) => {
@@ -575,8 +575,11 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
       // Update daily_habit_tracking for all habits for all days in the week
       const trackingRecordsToUpsert = [];
+      const newDailyTrackingForWeek: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = {};
+
       for (const day of daysInWeek) {
         const formattedDay = format(day, 'yyyy-MM-dd');
+        newDailyTrackingForWeek[formattedDay] = {};
         for (const habit of habits) {
           trackingRecordsToUpsert.push({
             date: formattedDay,
@@ -584,6 +587,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             tracked_values: ["WEEK_OFF"],
             is_out_of_control_miss: false,
           });
+          newDailyTrackingForWeek[formattedDay][habit.id] = {
+            trackedValues: ["WEEK_OFF"],
+            isOutOfControlMiss: false,
+          };
         }
       }
 
@@ -603,7 +610,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       showSuccess(`Week ${currentWeekNumber} marked as 'Week Off' for all habits!`);
       setCurrentWeekOffRecord({ id: 'temp', year: currentYear, week_number: currentWeekNumber, is_off: true, created_at: new Date().toISOString() });
       setUsedWeekOffsCount(prev => prev + 1);
-      // Re-fetch data for the current date to reflect changes in habit cards
+      
+      // Immediately update local dailyTracking state for the entire week
+      setDailyTracking(prev => ({
+        ...prev,
+        ...newDailyTrackingForWeek,
+      }));
+      // Re-fetch data for the current date to ensure other states (like counts) are consistent
       fetchDataForDate();
 
     } else {
@@ -639,7 +652,26 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       showSuccess(`Week ${currentWeekNumber} unmarked. Habit tracking is now active.`);
       setCurrentWeekOffRecord(null);
       setUsedWeekOffsCount(prev => Math.max(0, prev - 1));
-      // Re-fetch data for the current date to reflect changes in habit cards
+
+      // Immediately update local dailyTracking state to remove "WEEK_OFF" for the entire week
+      setDailyTracking(prev => {
+        const updatedPrev = { ...prev };
+        for (const day of daysInWeek) {
+          const formattedDay = format(day, 'yyyy-MM-dd');
+          if (updatedPrev[formattedDay]) {
+            for (const habit of habits) {
+              if (updatedPrev[formattedDay][habit.id]?.trackedValues.includes("WEEK_OFF")) {
+                updatedPrev[formattedDay][habit.id] = {
+                  trackedValues: [], // Clear tracked values
+                  isOutOfControlMiss: false,
+                };
+              }
+            }
+          }
+        }
+        return updatedPrev;
+      });
+      // Re-fetch data for the current date to ensure other states (like counts) are consistent
       fetchDataForDate();
     }
     setIsWeekOffLoading(false);
