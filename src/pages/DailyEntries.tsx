@@ -53,6 +53,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [currentWeekOffRecord, setCurrentWeekOffRecord] = React.useState<WeeklyOffRecord | null>(null);
   const [usedWeekOffsCount, setUsedWeekOffsCount] = React.useState<number>(0);
   const [isWeekOffLoading, setIsWeekOffLoading] = React.useState(false);
+  const [isAuthenticated, setIsAuthenticated] = React.useState(false); // New state for authentication status
 
   // Effect to set default date, highlight, and show hint
   React.useEffect(() => {
@@ -95,6 +96,25 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
     fetchLastEntryDate();
   }, []); // Run once on mount
+
+  // Effect to check authentication status
+  React.useEffect(() => {
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsAuthenticated(!!user);
+    };
+
+    checkUser();
+
+    // Listen for auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session?.user);
+    });
+
+    return () => {
+      authListener?.unsubscribe();
+    };
+  }, []); // Empty dependency array to run once on mount and listen for changes
 
   // Load habits and app settings from Supabase on component mount
   React.useEffect(() => {
@@ -507,6 +527,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   };
 
   const handleToggleWeekOff = async (checked: boolean) => {
+    if (!isAuthenticated) {
+      showError("You must be logged in to mark a week off.");
+      setIsWeekOffLoading(false); // Ensure loading state is reset
+      return;
+    }
+
     if (!entryDate || !isMonday(new Date(entryDate))) {
       showError("You can only mark a week off starting on a Monday.");
       return;
@@ -642,7 +668,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
               id="take-week-off-switch"
               checked={currentWeekOffRecord?.is_off || false}
               onCheckedChange={handleToggleWeekOff}
-              disabled={isWeekOffLoading || (!currentWeekOffRecord?.is_off && remainingWeekOffs <= 0)}
+              disabled={isWeekOffLoading || (!currentWeekOffRecord?.is_off && remainingWeekOffs <= 0) || !isAuthenticated}
             />
           </div>
         )}
