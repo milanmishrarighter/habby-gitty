@@ -35,7 +35,8 @@ const App = () => {
     });
 
     return () => {
-      authListener?.unsubscribe();
+      // Corrected unsubscribe call
+      authListener?.subscription.unsubscribe();
     };
   }, []);
 
