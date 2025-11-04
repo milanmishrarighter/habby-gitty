@@ -59,7 +59,7 @@ const App = () => {
 
   return (
     <div className="flex flex-col items-center relative">
-      <VersionDisplay version="1.2.1" />
+      <VersionDisplay version="1.2.2" />
       <Sonner />
       <div className="w-full max-w-4xl p-4 sm:p-6 lg:p-8 bg-white shadow-xl rounded-2xl my-8">
         <div className="flex justify-between items-center mb-4">
