@@ -7,34 +7,13 @@ interface EmojiPickerProps {
   onSelectEmoji: (emoji: string) => void;
 }
 
-// Helper function to check if a character is an emoji
-const isEmoji = (char: string): boolean => {
-  // Using Unicode property escape for Emoji.
-  // The 'u' flag is essential for Unicode regex to correctly interpret Unicode characters.
-  // This is the most robust way to detect emojis in modern JavaScript environments.
-  // It covers various emoji categories, including skin tones and zero-width joiner sequences.
-  // For a single character input, it will primarily check single emoji characters.
-  return /\p{Emoji}/u.test(char);
-};
-
 const EmojiPicker: React.FC<EmojiPickerProps> = ({ selectedEmoji, onSelectEmoji }) => {
   const [isFocused, setIsFocused] = React.useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
-
-    if (inputValue === "") {
-      // Allow clearing the input
-      onSelectEmoji("");
-    } else if (inputValue.length === 1) {
-      // Check if the single character is an emoji
-      if (isEmoji(inputValue)) {
-        onSelectEmoji(inputValue);
-      }
-      // If it's not an emoji, do nothing. The input field will retain its previous valid emoji or remain empty.
-    }
-    // If inputValue.length > 1, it's already prevented by maxLength={1}
-    // so we don't need to handle it explicitly here.
+    // No validation or length restriction, directly update the selected emoji
+    onSelectEmoji(inputValue);
   };
 
   return (
@@ -48,9 +27,9 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({ selectedEmoji, onSelectEmoji 
         onChange={handleChange}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        maxLength={1} // Enforce single character
+        // Removed maxLength={1}
       />
-      <p className="text-xs text-gray-500 mt-1">Type or use your keyboard's emoji picker (single character).</p>
+      <p className="text-xs text-gray-500 mt-1">Type or use your keyboard's emoji picker (any character allowed).</p>
     </div>
   );
 };
