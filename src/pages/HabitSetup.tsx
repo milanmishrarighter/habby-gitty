@@ -38,6 +38,7 @@ const HabitSetup: React.FC = () => {
 
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [habitToEdit, setHabitToEdit] = React.useState<Habit | null>(null);
+  const habitToScrollRef = React.useRef<string | null>(null); // Ref to store the ID of the habit to scroll to
 
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -67,6 +68,20 @@ const HabitSetup: React.FC = () => {
   React.useEffect(() => {
     fetchHabits();
   }, [fetchHabits]);
+
+  // Effect to scroll to the last edited habit after re-render
+  React.useEffect(() => {
+    if (habitToScrollRef.current) {
+      // Use setTimeout to ensure the DOM has updated before attempting to scroll
+      setTimeout(() => {
+        const element = document.getElementById(habitToScrollRef.current!);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        habitToScrollRef.current = null; // Clear the ref after scrolling
+      }, 100); // Small delay to allow DOM to render
+    }
+  }, [habits]); // Trigger when habits state changes (after an edit/add/delete)
 
   // Moved console.log into a useEffect
   React.useEffect(() => {
@@ -164,7 +179,9 @@ const HabitSetup: React.FC = () => {
       console.error("Error adding habit:", error);
       showError("Failed to add habit.");
     } else if (data && data.length > 0) {
-      setHabits((prev) => [mapSupabaseHabitToHabit(data[0]), ...prev]); // Map the returned data
+      const addedHabit = mapSupabaseHabitToHabit(data[0]);
+      setHabits((prev) => [addedHabit, ...prev]); // Map the returned data
+      habitToScrollRef.current = addedHabit.id; // Set ref to scroll to this new habit
       showSuccess("Habit added successfully!");
       resetForm();
     }
@@ -174,6 +191,7 @@ const HabitSetup: React.FC = () => {
   const handleEditHabitClick = (habit: Habit) => {
     setHabitToEdit(habit);
     setIsEditModalOpen(true);
+    habitToScrollRef.current = habit.id; // Store the ID of the habit being edited
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
@@ -203,6 +221,8 @@ const HabitSetup: React.FC = () => {
     } else if (data && data.length > 0) {
       // Map the returned data back to camelCase for local state
       setHabits((prev) => prev.map(h => h.id === id ? mapSupabaseHabitToHabit(data[0]) : h));
+      // habitToScrollRef.current is already set from handleEditHabitClick
+      showSuccess("Habit updated successfully!");
     }
     setIsLoading(false);
   };
