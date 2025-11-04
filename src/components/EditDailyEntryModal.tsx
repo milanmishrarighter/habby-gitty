@@ -30,7 +30,7 @@ interface EditDailyEntryModalProps {
 const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClose, initialEntry, onSave }) => {
   const [editedDate, setEditedDate] = React.useState(initialEntry?.date || "");
   const [journalText, setJournalText] = React.useState(initialEntry?.text || "");
-  const [moodEmoji, setMoodEmoji] = React.useState(initialEntry?.mood || "😊");
+  const [moodEmoji, setMoodEmoji] = React.useState(initialEntry?.mood || ""); // Changed initial state to empty string
   const [newLearningText, setNewLearningText] = React.useState(initialEntry?.newLearningText || ""); // New state
   const [habits, setHabits] = React.useState<Habit[]>([]);
   // This state will hold the tracking values for the entry being edited, regardless of editedDate

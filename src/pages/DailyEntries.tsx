@@ -32,7 +32,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
   const [entryDate, setEntryDate] = React.useState(getTodayDate());
   const [journalText, setJournalText] = React.useState("");
-  const [moodEmoji, setMoodEmoji] = React.useState("😊");
+  const [moodEmoji, setMoodEmoji] = React.useState(""); // Changed initial state to empty string
   const [newLearningText, setNewLearningText] = React.useState(""); // New state for new learning text
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }>({});
@@ -159,7 +159,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const fetchDataForDate = React.useCallback(async () => {
     if (!entryDate) {
       setJournalText("");
-      setMoodEmoji("😊");
+      setMoodEmoji(""); // Reset new learning text
       setNewLearningText(""); // Reset new learning text
       setCurrentEntryId(null);
       setDailyTracking({});
@@ -189,7 +189,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       console.error("Error fetching daily entry:", entryError);
       showError("Failed to load daily entry.");
       setJournalText("");
-      setMoodEmoji("😊");
+      setMoodEmoji(""); // Reset new learning text
       setNewLearningText(""); // Reset new learning text
       setCurrentEntryId(null);
     } else if (entryData) {
@@ -199,7 +199,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setCurrentEntryId(entryData.id);
     } else {
       setJournalText("");
-      setMoodEmoji("😊");
+      setMoodEmoji(""); // Reset new learning text
       setNewLearningText(""); // Reset new learning text
       setCurrentEntryId(null);
     }
