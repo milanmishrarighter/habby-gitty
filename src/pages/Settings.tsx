@@ -11,6 +11,7 @@ import { AppSettings } from "@/types/appSettings";
 
 const Settings: React.FC = () => {
   const [yearlyWeekOffsAllowed, setYearlyWeekOffsAllowed] = React.useState<number | "">(0);
+  const [yearlyNothingsAllowed, setYearlyNothingsAllowed] = React.useState<number | "">(0); // New state
   const [settingsId, setSettingsId] = React.useState<string | null>(null);
   const [allSettingsData, setAllSettingsData] = React.useState<Record<string, any>>({}); // To hold all settings from JSONB
   const [isLoading, setIsLoading] = React.useState(true);
@@ -31,6 +32,7 @@ const Settings: React.FC = () => {
         setSettingsId(data.id);
         setAllSettingsData(data.settings_data || {});
         setYearlyWeekOffsAllowed(data.settings_data?.yearly_week_offs_allowed || 0);
+        setYearlyNothingsAllowed(data.settings_data?.yearly_nothings_allowed || 0); // Set new field
       }
       setIsLoading(false);
     };
@@ -42,12 +44,17 @@ const Settings: React.FC = () => {
       showError("Please enter a valid positive number for Yearly Week Offs Allowed.");
       return;
     }
+    if (typeof yearlyNothingsAllowed !== 'number' || yearlyNothingsAllowed < 0) { // New validation
+      showError("Please enter a valid positive number for Yearly Nothings Allowed.");
+      return;
+    }
 
     setIsLoading(true);
 
     const updatedSettingsData = {
       ...allSettingsData, // Keep existing settings
       yearly_week_offs_allowed: yearlyWeekOffsAllowed,
+      yearly_nothings_allowed: yearlyNothingsAllowed, // Save new field
     };
 
     let error = null;
@@ -106,6 +113,24 @@ const Settings: React.FC = () => {
             />
             <p className="text-xs text-gray-500 mt-1">
               Number of weeks you can take off from tracking habits without penalty.
+            </p>
+          </div>
+          <div className="mb-4"> {/* New input field */}
+            <Label htmlFor="yearly-nothings-allowed" className="block text-sm font-medium text-gray-700 mb-1">
+              Yearly "Nothings" Allowed (for new learning)
+            </Label>
+            <Input
+              type="number"
+              id="yearly-nothings-allowed"
+              placeholder="e.g., 10"
+              value={yearlyNothingsAllowed}
+              onChange={(e) => setYearlyNothingsAllowed(e.target.value === "" ? "" : Number(e.target.value))}
+              min="0"
+              className="w-full"
+              disabled={isLoading}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Number of times you can record "nothing" for "What's something new you learned today" per year.
             </p>
           </div>
           <Button onClick={handleSaveSettings} disabled={isLoading}>

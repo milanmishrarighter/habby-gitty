@@ -30,3 +30,12 @@ export interface WeeklyOffRecord {
   is_off: boolean;
   created_at: string;
 }
+
+export interface YearlyNothingsCount {
+  id: string;
+  user_id: string;
+  year: string;
+  count: number;
+  created_at: string;
+  updated_at: string;
+}

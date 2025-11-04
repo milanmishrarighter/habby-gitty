@@ -3,5 +3,6 @@ export interface DailyEntry {
   date: string;
   text: string;
   mood: string;
+  newLearningText?: string; // New field: What's something new you learned today
   timestamp: string;
 }

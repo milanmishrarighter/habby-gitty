@@ -9,7 +9,7 @@ import { showSuccess, showError, showInfo, dismissToast } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount, WeeklyOffRecord } from "@/types/tracking"; // Import new types
+import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount, WeeklyOffRecord, YearlyNothingsCount } from "@/types/tracking"; // Import new types
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays, isMonday, getISOWeek, eachDayOfInterval } from 'date-fns'; // Added addDays, isMonday, getISOWeek, eachDayOfInterval
@@ -33,8 +33,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [entryDate, setEntryDate] = React.useState(getTodayDate());
   const [journalText, setJournalText] = React.useState("");
   const [moodEmoji, setMoodEmoji] = React.useState("😊");
+  const [newLearningText, setNewLearningText] = React.useState(""); // New state for new learning text
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
+  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
   const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null);
@@ -54,6 +55,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [usedWeekOffsCount, setUsedWeekOffsCount] = React.useState<number>(0);
   const [isWeekOffLoading, setIsWeekOffLoading] = React.useState(false);
   const [isAuthenticated, setIsAuthenticated] = React.useState(false); // New state for authentication status
+
+  // New states for "nothing learned" feature
+  const [yearlyNothingsCount, setYearlyNothingsCount] = React.useState<YearlyNothingsCount | null>(null);
+  const [isNothingButtonLoading, setIsNothingButtonLoading] = React.useState(false);
 
   // Effect to set default date, highlight, and show hint
   React.useEffect(() => {
@@ -155,6 +160,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     if (!entryDate) {
       setJournalText("");
       setMoodEmoji("😊");
+      setNewLearningText(""); // Reset new learning text
       setCurrentEntryId(null);
       setDailyTracking({});
       setYearlyProgress({});
@@ -163,12 +169,14 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setMonthlyTrackingCounts({});
       setCurrentWeekOffRecord(null); // Reset week off record
       setUsedWeekOffsCount(0); // Reset used week offs
+      setYearlyNothingsCount(null); // Reset yearly nothings count
       return;
     }
 
     const selectedDate = new Date(entryDate);
     const currentYear = selectedDate.getFullYear().toString();
     const currentWeekNumber = getISOWeek(selectedDate);
+    const { data: { user } } = await supabase.auth.getUser(); // Get current user for nothings count
 
     // Fetch daily entry
     const { data: entryData, error: entryError } = await supabase
@@ -182,14 +190,17 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       showError("Failed to load daily entry.");
       setJournalText("");
       setMoodEmoji("😊");
+      setNewLearningText(""); // Reset new learning text
       setCurrentEntryId(null);
     } else if (entryData) {
       setJournalText(entryData.text);
       setMoodEmoji(entryData.mood);
+      setNewLearningText(entryData.newLearningText || ""); // Set new learning text
       setCurrentEntryId(entryData.id);
     } else {
       setJournalText("");
       setMoodEmoji("😊");
+      setNewLearningText(""); // Reset new learning text
       setCurrentEntryId(null);
     }
 
@@ -204,7 +215,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       showError("Failed to load daily habit tracking.");
       setDailyTracking({});
     } else {
-      const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = { [entryDate]: {} };
+      const newDailyTracking: { [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } = { [entryDate]: {} };
       trackingData.forEach(record => {
         newDailyTracking[entryDate][record.habit_id] = {
           trackedValues: record.tracked_values,
@@ -266,6 +277,27 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setCurrentWeekOffRecord(currentWeekOff || null);
       setUsedWeekOffsCount(weekOffsData.filter(wo => wo.is_off).length);
     }
+
+    // Fetch yearly nothings count for the current year and user
+    if (user) {
+      const { data: nothingsCountData, error: nothingsCountError } = await supabase
+        .from('yearly_nothings_counts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('year', currentYear)
+        .single();
+
+      if (nothingsCountError && nothingsCountError.code !== 'PGRST116') {
+        console.error("Error fetching yearly nothings count:", nothingsCountError);
+        showError("Failed to load yearly 'nothing' count.");
+        setYearlyNothingsCount(null);
+      } else if (nothingsCountData) {
+        setYearlyNothingsCount(nothingsCountData as YearlyNothingsCount);
+      } else {
+        setYearlyNothingsCount(null); // No record found for this year/user
+      }
+    }
+
 
     // --- Calculate Weekly and Monthly Tracking Counts ---
     const startOfCurrentWeek = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd'); // Monday start
@@ -337,10 +369,21 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       return;
     }
 
+    const currentYear = new Date(entryDate).getFullYear().toString();
+    const yearlyNothingsAllowed = appSettings?.settings_data?.yearly_nothings_allowed || 0;
+    const currentNothingsCount = yearlyNothingsCount?.count || 0;
+
+    // Validation for "nothing" entries
+    if (newLearningText.toLowerCase() === 'nothing' && currentNothingsCount >= yearlyNothingsAllowed && yearlyNothingsAllowed > 0) {
+      showError(`You have used all ${yearlyNothingsAllowed} allowed "nothing" entries for new learning this year. Please enter something new.`);
+      return;
+    }
+
     const entryData = {
       date: entryDate,
       text: journalText.trim(),
       mood: moodEmoji,
+      new_learning_text: newLearningText.trim() === '' ? null : newLearningText.trim(), // Save as null if empty
       timestamp: new Date().toISOString(),
     };
 
@@ -677,12 +720,85 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     setIsWeekOffLoading(false);
   };
 
+  const handleNothingLearned = async () => {
+    if (!isAuthenticated) {
+      showError("You must be logged in to record 'nothing'.");
+      return;
+    }
+    if (!entryDate) {
+      showError("Please select a date first.");
+      return;
+    }
+
+    setIsNothingButtonLoading(true);
+    const currentYear = new Date(entryDate).getFullYear().toString();
+    const yearlyNothingsAllowed = appSettings?.settings_data?.yearly_nothings_allowed || 0;
+    const currentNothingsCount = yearlyNothingsCount?.count || 0;
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      showError("User not authenticated.");
+      setIsNothingButtonLoading(false);
+      return;
+    }
+
+    if (currentNothingsCount >= yearlyNothingsAllowed && yearlyNothingsAllowed > 0) {
+      showError(`You have used all ${yearlyNothingsAllowed} allowed "nothing" entries for new learning this year.`);
+      setIsNothingButtonLoading(false);
+      return;
+    }
+
+    // If the field already says "nothing", don't increment count again
+    if (newLearningText.toLowerCase() === 'nothing') {
+      setNewLearningText(""); // Clear it if it was already "nothing"
+      // Decrement count if it was previously "nothing" and we are clearing it
+      if (yearlyNothingsCount) {
+        const newCount = Math.max(0, yearlyNothingsCount.count - 1);
+        const { error: updateError } = await supabase
+          .from('yearly_nothings_counts')
+          .update({ count: newCount })
+          .eq('id', yearlyNothingsCount.id);
+        if (updateError) console.error("Error decrementing nothing count:", updateError);
+        setYearlyNothingsCount(prev => prev ? { ...prev, count: newCount } : null);
+      }
+      showSuccess("Cleared 'nothing' entry.");
+    } else {
+      setNewLearningText("nothing"); // Set the text to "nothing"
+      // Increment count
+      const newCount = (yearlyNothingsCount?.count || 0) + 1;
+      const { data: upsertData, error: upsertError } = await supabase
+        .from('yearly_nothings_counts')
+        .upsert({
+          user_id: user.id,
+          year: currentYear,
+          count: newCount,
+        }, { onConflict: 'user_id,year' })
+        .select();
+
+      if (upsertError) {
+        console.error("Error updating yearly nothings count:", upsertError);
+        showError("Failed to update 'nothing' count.");
+      } else if (upsertData && upsertData.length > 0) {
+        setYearlyNothingsCount(upsertData[0] as YearlyNothingsCount);
+        showSuccess(`Recorded "nothing" for today. ${yearlyNothingsAllowed - newCount} remaining.`);
+      }
+    }
+    setIsNothingButtonLoading(false);
+  };
+
+
   const handleSetupHabitClick = () => {
     setActiveTab("setup");
   };
 
   const isCurrentDateMonday = isMonday(new Date(entryDate));
   const remainingWeekOffs = (appSettings?.settings_data?.yearly_week_offs_allowed || 0) - usedWeekOffsCount; // Access from settings_data
+  const yearlyNothingsAllowed = appSettings?.settings_data?.yearly_nothings_allowed || 0;
+  const currentNothingsCount = yearlyNothingsCount?.count || 0;
+  const remainingNothings = yearlyNothingsAllowed - currentNothingsCount;
+
+  const isNothingButtonDisabled = isNothingButtonLoading || !isAuthenticated || (newLearningText.toLowerCase() !== 'nothing' && remainingNothings <= 0 && yearlyNothingsAllowed > 0);
+
 
   return (
     <div id="daily" className="tab-content text-center">
@@ -729,6 +845,29 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           value={journalText}
           onChange={(e) => setJournalText(e.target.value)}
         ></textarea>
+      </div>
+      {/* New Learning Text Field */}
+      <div className="flex flex-col items-center justify-center mb-6 w-full">
+        <label htmlFor="new-learning-text" className="block text-sm font-medium text-gray-700 mb-2">What's something new you learned today?</label>
+        <textarea
+          id="new-learning-text"
+          rows={4}
+          className="mt-1 p-4 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full resize-y"
+          placeholder="Enter your new learning here..."
+          value={newLearningText}
+          onChange={(e) => setNewLearningText(e.target.value)}
+        ></textarea>
+        <Button
+          variant="outline"
+          className="mt-2 w-full max-w-sm"
+          onClick={handleNothingLearned}
+          disabled={isNothingButtonDisabled}
+        >
+          {newLearningText.toLowerCase() === 'nothing' ? "Clear 'Nothing'" : "Nothing"}
+          {yearlyNothingsAllowed > 0 && (
+            <span className="ml-2 text-xs text-gray-500">({remainingNothings} / {yearlyNothingsAllowed} remaining)</span>
+          )}
+        </Button>
       </div>
       {/* Mood Emoji Picker */}
       <div className="flex flex-col items-center justify-center mb-6">

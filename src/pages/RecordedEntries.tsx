@@ -285,6 +285,7 @@ const RecordedEntries: React.FC = () => {
 
     const { id: idToDelete, date: dateToDelete } = entryToDelete;
     const currentYear = new Date(dateToDelete).getFullYear().toString();
+    const { data: { user } } = await supabase.auth.getUser();
 
     // 1. Fetch daily habit tracking records for the date to identify out-of-control misses and contributing values
     const { data: trackingRecordsForDate, error: fetchTrackingError } = await supabase
@@ -302,7 +303,7 @@ const RecordedEntries: React.FC = () => {
         if (record.is_out_of_control_miss) {
           const { data: currentMissCountData, error: fetchMissCountError } = await supabase
             .from('yearly_out_of_control_miss_counts')
-            .select('used_count')
+            .select('id, used_count')
             .eq('habit_id', record.habit_id)
             .eq('year', currentYear)
             .single();
@@ -315,8 +316,7 @@ const RecordedEntries: React.FC = () => {
             const { error: updateMissCountError } = await supabase
               .from('yearly_out_of_control_miss_counts')
               .update({ used_count: newUsedCount })
-              .eq('habit_id', record.habit_id)
-              .eq('year', currentYear);
+              .eq('id', currentMissCountData.id);
 
             if (updateMissCountError) {
               console.error("Error decrementing yearly miss count:", updateMissCountError);
@@ -354,6 +354,34 @@ const RecordedEntries: React.FC = () => {
               }
             }
           }
+        }
+      }
+    }
+
+    // 2. Decrement yearly nothings count if the entry had "nothing" for new_learning_text
+    const { data: entryToDeleteData, error: fetchEntryError } = await supabase
+      .from('daily_entries')
+      .select('new_learning_text')
+      .eq('id', idToDelete)
+      .single();
+
+    if (!fetchEntryError && entryToDeleteData?.new_learning_text?.toLowerCase() === 'nothing' && user) {
+      const { data: currentNothingsCountData, error: fetchNothingsCountError } = await supabase
+        .from('yearly_nothings_counts')
+        .select('id, count')
+        .eq('user_id', user.id)
+        .eq('year', currentYear)
+        .single();
+
+      if (!fetchNothingsCountError && currentNothingsCountData) {
+        const newCount = Math.max(0, currentNothingsCountData.count - 1);
+        const { error: updateNothingsCountError } = await supabase
+          .from('yearly_nothings_counts')
+          .update({ count: newCount })
+          .eq('id', currentNothingsCountData.id);
+        if (updateNothingsCountError) {
+          console.error("Error decrementing yearly nothings count:", updateNothingsCountError);
+          showError("Failed to update 'nothing' count.");
         }
       }
     }
@@ -399,9 +427,10 @@ const RecordedEntries: React.FC = () => {
     oldDate: string,
     updatedHabitTracking: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }
   ) => {
-    const { id, date: newDate, text, mood, timestamp } = updatedEntry;
+    const { id, date: newDate, text, mood, newLearningText, timestamp } = updatedEntry;
     const oldYear = new Date(oldDate).getFullYear().toString();
     const newYear = new Date(newDate).getFullYear().toString();
+    const { data: { user } } = await supabase.auth.getUser();
 
     // If the date has changed, we need to move the tracking records
     if (newDate !== oldDate) {
@@ -446,6 +475,30 @@ const RecordedEntries: React.FC = () => {
               .update({ progress_count: newProgressCount })
               .eq('id', currentProgressData.id);
           }
+        }
+      }
+
+      // Decrement yearly nothings count for old year if old entry had "nothing"
+      const { data: oldEntryData, error: fetchOldEntryError } = await supabase
+        .from('daily_entries')
+        .select('new_learning_text')
+        .eq('id', id) // Use the original entry ID
+        .single();
+
+      if (!fetchOldEntryError && oldEntryData?.new_learning_text?.toLowerCase() === 'nothing' && user) {
+        const { data: currentNothingsCountData, error: fetchNothingsCountError } = await supabase
+          .from('yearly_nothings_counts')
+          .select('id, count')
+          .eq('user_id', user.id)
+          .eq('year', oldYear)
+          .single();
+
+        if (!fetchNothingsCountError && currentNothingsCountData) {
+          const newCount = Math.max(0, currentNothingsCountData.count - 1);
+          await supabase
+            .from('yearly_nothings_counts')
+            .update({ count: newCount })
+            .eq('id', currentNothingsCountData.id);
         }
       }
 
@@ -530,12 +583,71 @@ const RecordedEntries: React.FC = () => {
           }
         }
       }
+
+      // Increment yearly nothings count for new year if new entry has "nothing"
+      if (newLearningText?.toLowerCase() === 'nothing' && user) {
+        const { data: currentNothingsCountData, error: fetchNothingsCountError } = await supabase
+          .from('yearly_nothings_counts')
+          .select('id, count')
+          .eq('user_id', user.id)
+          .eq('year', newYear)
+          .single();
+
+        if (!fetchNothingsCountError && currentNothingsCountData) {
+          const newCount = currentNothingsCountData.count + 1;
+          await supabase
+            .from('yearly_nothings_counts')
+            .update({ count: newCount })
+            .eq('id', currentNothingsCountData.id);
+        } else if (fetchNothingsCountError?.code === 'PGRST116') {
+          await supabase
+            .from('yearly_nothings_counts')
+            .insert({ user_id: user.id, year: newYear, count: 1 });
+        }
+      }
+    } else {
+      // If date has NOT changed, but new_learning_text changed from/to "nothing"
+      const { data: oldEntryData, error: fetchOldEntryError } = await supabase
+        .from('daily_entries')
+        .select('new_learning_text')
+        .eq('id', id)
+        .single();
+
+      const oldNewLearningIsNothing = oldEntryData?.new_learning_text?.toLowerCase() === 'nothing';
+      const newNewLearningIsNothing = newLearningText?.toLowerCase() === 'nothing';
+
+      if (oldNewLearningIsNothing !== newNewLearningIsNothing && user) {
+        const { data: currentNothingsCountData, error: fetchNothingsCountError } = await supabase
+          .from('yearly_nothings_counts')
+          .select('id, count')
+          .eq('user_id', user.id)
+          .eq('year', newYear)
+          .single();
+
+        if (!fetchNothingsCountError && currentNothingsCountData) {
+          let newCount = currentNothingsCountData.count;
+          if (newNewLearningIsNothing && !oldNewLearningIsNothing) { // Changed to nothing
+            newCount += 1;
+          } else if (!newNewLearningIsNothing && oldNewLearningIsNothing) { // Changed from nothing
+            newCount = Math.max(0, newCount - 1);
+          }
+          await supabase
+            .from('yearly_nothings_counts')
+            .update({ count: newCount })
+            .eq('id', currentNothingsCountData.id);
+        } else if (newNewLearningIsNothing && fetchNothingsCountError?.code === 'PGRST116' && user) {
+          // No record exists, but new entry is "nothing", so insert
+          await supabase
+            .from('yearly_nothings_counts')
+            .insert({ user_id: user.id, year: newYear, count: 1 });
+        }
+      }
     }
 
     // Update the daily_entry record
     const { error: entryUpdateError } = await supabase
       .from('daily_entries')
-      .update({ date: newDate, text, mood, timestamp })
+      .update({ date: newDate, text, mood, new_learning_text: newLearningText.trim() === '' ? null : newLearningText.trim(), timestamp })
       .eq('id', id);
 
     if (entryUpdateError) {
@@ -692,6 +804,12 @@ const RecordedEntries: React.FC = () => {
                 </CardHeader>
                 <CardContent className="flex-grow">
                   <p className="text-gray-700 text-left">{entry.text}</p>
+                  {entry.newLearningText && (
+                    <div className="mt-3 pt-3 border-t border-gray-100 text-left">
+                      <h4 className="font-semibold text-gray-800 text-sm mb-1">Learned Today:</h4>
+                      <p className="text-sm text-gray-700 italic">{entry.newLearningText}</p>
+                    </div>
+                  )}
                   
                   <HabitTrackingDisplay 
                     habitsTrackedForDay={habitsTrackedForDay} 
