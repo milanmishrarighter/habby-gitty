@@ -35,7 +35,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [moodEmoji, setMoodEmoji] = React.useState("😊");
   const [newLearningText, setNewLearningText] = React.useState(""); // New state for new learning text
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
+  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
   const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null);
