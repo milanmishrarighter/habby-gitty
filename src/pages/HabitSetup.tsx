@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
-import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'; // Import DND components
 
 interface FrequencyConditionInput {
   trackingValue: string;
@@ -51,7 +50,7 @@ const HabitSetup: React.FC = () => {
     const { data, error } = await supabase
       .from('habits')
       .select('*')
-      .order('sort_order', { ascending: true }); // Order by sort_order
+      .order('created_at', { ascending: true }); // Order by created_at
 
     if (error) {
       console.error("Error fetching habits in HabitSetup:", error);
@@ -162,7 +161,6 @@ const HabitSetup: React.FC = () => {
       },
       allowed_out_of_control_misses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0,
       hint_text: hintText.trim(),
-      sort_order: habits.length, // Assign a sort_order that places it at the end initially
     };
 
     setIsLoading(true);
@@ -191,7 +189,7 @@ const HabitSetup: React.FC = () => {
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
-    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, hintText, created_at, sortOrder } = updatedHabit;
+    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, hintText, created_at } = updatedHabit;
     const updatedHabitData = {
       name,
       color,
@@ -202,7 +200,6 @@ const HabitSetup: React.FC = () => {
       allowed_out_of_control_misses: allowedOutOfControlMisses,
       hint_text: hintText,
       created_at,
-      sort_order: sortOrder, // Include sort_order in update
     };
 
     setIsLoading(true);
@@ -294,52 +291,13 @@ const HabitSetup: React.FC = () => {
       showError("Failed to delete associated out of control miss data.");
     }
 
-    // Remove habit from local state and re-index sort_order
-    setHabits(prev => {
-      const newHabits = prev.filter(h => h.id !== idToDelete);
-      return newHabits.map((h, index) => ({ ...h, sortOrder: index }));
-    });
-    // Persist the new sort order to Supabase
-    await updateHabitSortOrderInDB(habits.filter(h => h.id !== idToDelete));
+    // Remove habit from local state
+    setHabits(prev => prev.filter(h => h.id !== idToDelete));
 
     showSuccess(`Habit '${habitToDelete.name}' and its associated data deleted successfully!`);
     setIsDeleteModalOpen(false);
     setHabitToDelete(null);
     setIsLoading(false);
-  };
-
-  const updateHabitSortOrderInDB = async (updatedHabits: Habit[]) => {
-    const updates = updatedHabits.map((habit, index) => ({
-      id: habit.id,
-      sort_order: index, // Assign new sort_order based on array index
-    }));
-
-    const { error: updateError } = await supabase
-      .from('habits')
-      .upsert(updates, { onConflict: 'id' }); // Use upsert with onConflict to update existing rows
-
-    if (updateError) {
-      console.error("Error updating habit sort order:", updateError);
-      showError("Failed to save habit order.");
-    } else {
-      showSuccess("Habit order saved successfully!");
-    }
-  };
-
-  const onDragEnd = (result: DropResult) => {
-    if (!result.destination) {
-      return;
-    }
-
-    const reorderedHabits = Array.from(habits);
-    const [removed] = reorderedHabits.splice(result.source.index, 1);
-    reorderedHabits.splice(result.destination.index, 0, removed);
-
-    // Update local state immediately for responsive UI
-    setHabits(reorderedHabits.map((h, index) => ({ ...h, sortOrder: index })));
-
-    // Persist the new order to the database
-    updateHabitSortOrderInDB(reorderedHabits);
   };
 
   if (isLoading) {
@@ -568,44 +526,23 @@ const HabitSetup: React.FC = () => {
 
       {/* Your Habits Section */}
       <div className="mt-8 pt-8 border-t border-gray-200">
-        <h3 className="text-2xl font-bold text-gray-800 mb-4">Your Habits (Drag to Reorder)</h3>
-        <DragDropContext onDragEnd={onDragEnd}>
-          <Droppable droppableId="habits-droppable">
-            {(provided) => (
-              <div
-                {...provided.droppableProps}
-                ref={provided.innerRef}
-                id="habits-list"
-                className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
-              >
-                {habits.length === 0 ? (
-                  <div id="empty-habits-placeholder" className="dotted-border-container col-span-full">
-                    <p className="text-lg">No habits added yet. Create your first habit above!</p>
-                  </div>
-                ) : (
-                  habits.map((habit, index) => (
-                    <Draggable key={habit.id} draggableId={habit.id} index={index}>
-                      {(provided) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                        >
-                          <HabitCard
-                            habit={habit}
-                            onEdit={handleEditHabitClick}
-                            onDelete={handleDeleteClick}
-                          />
-                        </div>
-                      )}
-                    </Draggable>
-                  ))
-                )}
-                {provided.placeholder}
-              </div>
-            )}
-          </Droppable>
-        </DragDropContext>
+        <h3 className="text-2xl font-bold text-gray-800 mb-4">Your Habits</h3>
+        <div id="habits-list" className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {habits.length === 0 ? (
+            <div id="empty-habits-placeholder" className="dotted-border-container col-span-full">
+              <p className="text-lg">No habits added yet. Create your first habit above!</p>
+            </div>
+          ) : (
+            habits.map((habit) => (
+              <HabitCard
+                key={habit.id}
+                habit={habit}
+                onEdit={handleEditHabitClick}
+                onDelete={handleDeleteClick}
+              />
+            ))
+          )}
+        </div>
       </div>
 
       <DeleteConfirmationModal

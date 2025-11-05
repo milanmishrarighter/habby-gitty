@@ -29,7 +29,7 @@ const YearlyAnalytics: React.FC = () => {
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [yearlyTrackingCounts, setYearlyTrackingCounts] = React.useState<YearlyTrackingCounts>({});
   const [yearlyProgressDisplay, setYearlyProgressDisplay] = React.useState<YearlyProgressDisplay>({});
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoading, setIsLoading] = true;
   const [hasDataForYear, setHasDataForYear] = React.useState(false);
 
   const years = React.useMemo(() => {
@@ -51,7 +51,7 @@ const YearlyAnalytics: React.FC = () => {
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('*')
-        .order('sort_order', { ascending: true }); // Order habits by sort_order
+        .order('created_at', { ascending: true }); // Order habits by created_at
 
       if (habitsError) {
         console.error("Error fetching habits for YearlyAnalytics:", habitsError);

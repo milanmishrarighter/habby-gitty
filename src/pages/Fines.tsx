@@ -35,7 +35,7 @@ const Fines: React.FC = () => {
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('*')
-        .order('sort_order', { ascending: true }); // Order habits by sort_order
+        .order('created_at', { ascending: true }); // Order habits by created_at
 
       if (habitsError) {
         console.error("Error fetching habits for Fines:", habitsError);
