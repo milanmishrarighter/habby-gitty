@@ -13,6 +13,7 @@ import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount 
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import HabitTrackingDisplay from "@/components/HabitTrackingDisplay";
+import { mapSupabaseEntryToDailyEntry } from "@/utils/dailyEntryUtils"; // Import the utility
 
 // Shadcn UI components for filters
 import { CalendarIcon, XCircle, Check } from "lucide-react";
@@ -151,8 +152,10 @@ const RecordedEntries: React.FC = () => {
       showError("Failed to load daily entries.");
       setDisplayEntries([]);
     } else {
-      setDailyEntries(entriesData as DailyEntry[]); // Keep all fetched entries in case filters are cleared
-      setDisplayEntries(entriesData as DailyEntry[]); // Display the filtered ones
+      const mappedEntries = (entriesData || []).map(mapSupabaseEntryToDailyEntry); // Use mapping
+      console.log("Fetched and mapped daily entries:", mappedEntries); // Log mapped data
+      setDailyEntries(mappedEntries); // Keep all fetched entries in case filters are cleared
+      setDisplayEntries(mappedEntries); // Display the filtered ones
     }
 
     // Fetch daily habit tracking records for the *displayed* entries
@@ -807,7 +810,7 @@ const RecordedEntries: React.FC = () => {
                   <p className="text-gray-700 text-left">{entry.text}</p>
                   {entry.newLearningText && (
                     <div className="mt-3 pt-3 border-t border-gray-100 text-left">
-                      <h4 className="font-semibold text-gray-800 text-sm mb-1">Learned Today:</h4>
+                      <h4 className="font-semibold text-gray-800 text-sm mb-1">Something new I learned that day:</h4>
                       <p className="text-sm text-gray-700 italic">{entry.newLearningText}</p>
                     </div>
                   )}
@@ -840,7 +843,7 @@ const RecordedEntries: React.FC = () => {
 
       <DeleteConfirmationModal
         isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
+        onClose={() => setIsDeleteModalModal(false)}
         onConfirm={confirmDelete}
         itemToDeleteName={entryToDelete ? `the entry for ${entryToDelete.date}` : "this entry"}
       />
