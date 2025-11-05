@@ -128,7 +128,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('sort_order', { ascending: true }); // Order habits by sort_order
 
       if (habitsError) {
         console.error("Error fetching habits for DailyEntries:", habitsError);

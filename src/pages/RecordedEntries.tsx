@@ -59,7 +59,8 @@ const RecordedEntries: React.FC = () => {
     // Fetch all habits from Supabase (always needed for display and deletion logic)
     const { data: habitsData, error: habitsError } = await supabase
       .from('habits')
-      .select('*');
+      .select('*')
+      .order('sort_order', { ascending: true }); // Order habits by sort_order
 
     if (habitsError) {
       console.error("Error fetching habits for RecordedEntries:", habitsError);

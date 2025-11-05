@@ -84,7 +84,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
         const { data: habitsData, error: habitsError } = await supabase
           .from('habits')
           .select('*')
-          .order('created_at', { ascending: false });
+          .order('sort_order', { ascending: true }); // Order habits by sort_order
 
         if (habitsError) {
           console.error("Error fetching habits for EditDailyEntryModal:", habitsError);
@@ -213,7 +213,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
           setWeeklyTrackingCounts(calculatedWeeklyCounts);
         }
 
-        // Fetch all tracking records for the initial month
+        // Fetch all tracking records for the current month
         const { data: monthlyRecords, error: monthlyError } = await supabase
           .from('daily_habit_tracking')
           .select('*')

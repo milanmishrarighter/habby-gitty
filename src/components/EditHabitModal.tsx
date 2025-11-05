@@ -136,7 +136,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       },
       allowedOutOfControlMisses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0, // Save new field
       hintText: hintText.trim(), // Save new field
-      // created_at remains the same
+      // created_at and sortOrder remain the same
     };
 
     onSave(updatedHabit);

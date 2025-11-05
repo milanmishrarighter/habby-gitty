@@ -50,7 +50,8 @@ const YearlyAnalytics: React.FC = () => {
       // Fetch all habits
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
-        .select('*');
+        .select('*')
+        .order('sort_order', { ascending: true }); // Order habits by sort_order
 
       if (habitsError) {
         console.error("Error fetching habits for YearlyAnalytics:", habitsError);

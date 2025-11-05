@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'; // Import DND components
 
 interface FrequencyConditionInput {
   trackingValue: string;
@@ -50,14 +51,13 @@ const HabitSetup: React.FC = () => {
     const { data, error } = await supabase
       .from('habits')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('sort_order', { ascending: true }); // Order by sort_order
 
     if (error) {
       console.error("Error fetching habits in HabitSetup:", error);
       setError("Failed to load habits. Please try again.");
       showError("Failed to load habits.");
     } else {
-      console.log("HabitSetup: Supabase raw habits data:", data); // Log raw data
       const mappedHabits = (data || []).map(mapSupabaseHabitToHabit);
       setHabits(mappedHabits);
     }
@@ -82,11 +82,6 @@ const HabitSetup: React.FC = () => {
       }, 100); // Small delay to allow DOM to render
     }
   }, [habits]); // Trigger when habits state changes (after an edit/add/delete)
-
-  // Moved console.log into a useEffect
-  React.useEffect(() => {
-    console.log("HabitSetup: Current habits state for rendering (from useEffect):", habits);
-  }, [habits]);
 
   const resetForm = () => {
     setHabitName("");
@@ -156,17 +151,18 @@ const HabitSetup: React.FC = () => {
     const newHabitData = {
       name: habitName.trim(),
       color: habitColor,
-      tracking_values: tempTrackingValues, // Stored as snake_case
+      tracking_values: tempTrackingValues,
       frequency_conditions: frequencyConditions
         .filter(cond => cond.trackingValue && cond.count !== "")
-        .map(cond => ({ ...cond, count: Number(cond.count) as number })), // Stored as camelCase in JSONB
-      fine_amount: typeof fineAmount === 'number' ? fineAmount : 0, // Stored as snake_case
+        .map(cond => ({ ...cond, count: Number(cond.count) as number })),
+      fine_amount: typeof fineAmount === 'number' ? fineAmount : 0,
       yearly_goal: {
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
-        contributingValues: contributingValues, // Stored as camelCase in JSONB
+        contributingValues: contributingValues,
       },
-      allowed_out_of_control_misses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0, // New field
-      hint_text: hintText.trim(), // New field
+      allowed_out_of_control_misses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0,
+      hint_text: hintText.trim(),
+      sort_order: habits.length, // Assign a sort_order that places it at the end initially
     };
 
     setIsLoading(true);
@@ -180,7 +176,7 @@ const HabitSetup: React.FC = () => {
       showError("Failed to add habit.");
     } else if (data && data.length > 0) {
       const addedHabit = mapSupabaseHabitToHabit(data[0]);
-      setHabits((prev) => [addedHabit, ...prev]); // Map the returned data
+      setHabits((prev) => [...prev, addedHabit]); // Add to the end of the list
       habitToScrollRef.current = addedHabit.id; // Set ref to scroll to this new habit
       showSuccess("Habit added successfully!");
       resetForm();
@@ -195,17 +191,18 @@ const HabitSetup: React.FC = () => {
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
-    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, hintText, created_at } = updatedHabit;
+    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, hintText, created_at, sortOrder } = updatedHabit;
     const updatedHabitData = {
       name,
       color,
-      tracking_values: trackingValues, // Convert to snake_case
-      frequency_conditions: frequencyConditions, // Stored as camelCase in JSONB
-      fine_amount: fineAmount, // Convert to snake_case
-      yearly_goal: yearlyGoal, // Stored as camelCase in JSONB
-      allowed_out_of_control_misses: allowedOutOfControlMisses, // New field
-      hint_text: hintText, // New field
+      tracking_values: trackingValues,
+      frequency_conditions: frequencyConditions,
+      fine_amount: fineAmount,
+      yearly_goal: yearlyGoal,
+      allowed_out_of_control_misses: allowedOutOfControlMisses,
+      hint_text: hintText,
       created_at,
+      sort_order: sortOrder, // Include sort_order in update
     };
 
     setIsLoading(true);
@@ -219,9 +216,7 @@ const HabitSetup: React.FC = () => {
       console.error("Error updating habit:", error);
       showError("Failed to update habit.");
     } else if (data && data.length > 0) {
-      // Map the returned data back to camelCase for local state
       setHabits((prev) => prev.map(h => h.id === id ? mapSupabaseHabitToHabit(data[0]) : h));
-      // habitToScrollRef.current is already set from handleEditHabitClick
       showSuccess("Habit updated successfully!");
     }
     setIsLoading(false);
@@ -299,13 +294,52 @@ const HabitSetup: React.FC = () => {
       showError("Failed to delete associated out of control miss data.");
     }
 
-    // Remove habit from local state
-    setHabits(prev => prev.filter(h => h.id !== idToDelete));
+    // Remove habit from local state and re-index sort_order
+    setHabits(prev => {
+      const newHabits = prev.filter(h => h.id !== idToDelete);
+      return newHabits.map((h, index) => ({ ...h, sortOrder: index }));
+    });
+    // Persist the new sort order to Supabase
+    await updateHabitSortOrderInDB(habits.filter(h => h.id !== idToDelete));
 
     showSuccess(`Habit '${habitToDelete.name}' and its associated data deleted successfully!`);
     setIsDeleteModalOpen(false);
     setHabitToDelete(null);
     setIsLoading(false);
+  };
+
+  const updateHabitSortOrderInDB = async (updatedHabits: Habit[]) => {
+    const updates = updatedHabits.map((habit, index) => ({
+      id: habit.id,
+      sort_order: index, // Assign new sort_order based on array index
+    }));
+
+    const { error: updateError } = await supabase
+      .from('habits')
+      .upsert(updates, { onConflict: 'id' }); // Use upsert with onConflict to update existing rows
+
+    if (updateError) {
+      console.error("Error updating habit sort order:", updateError);
+      showError("Failed to save habit order.");
+    } else {
+      showSuccess("Habit order saved successfully!");
+    }
+  };
+
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) {
+      return;
+    }
+
+    const reorderedHabits = Array.from(habits);
+    const [removed] = reorderedHabits.splice(result.source.index, 1);
+    reorderedHabits.splice(result.destination.index, 0, removed);
+
+    // Update local state immediately for responsive UI
+    setHabits(reorderedHabits.map((h, index) => ({ ...h, sortOrder: index })));
+
+    // Persist the new order to the database
+    updateHabitSortOrderInDB(reorderedHabits);
   };
 
   if (isLoading) {
@@ -534,25 +568,44 @@ const HabitSetup: React.FC = () => {
 
       {/* Your Habits Section */}
       <div className="mt-8 pt-8 border-t border-gray-200">
-        <h3 className="text-2xl font-bold text-gray-800 mb-4">Your Habits</h3>
-        <div id="habits-list">
-          {habits.length === 0 ? (
-            <div id="empty-habits-placeholder" className="dotted-border-container">
-              <p className="text-lg">No habits added yet. Create your first habit above!</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {habits.map((habit) => (
-                <HabitCard
-                  key={habit.id}
-                  habit={habit}
-                  onEdit={handleEditHabitClick}
-                  onDelete={handleDeleteClick}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        <h3 className="text-2xl font-bold text-gray-800 mb-4">Your Habits (Drag to Reorder)</h3>
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId="habits-droppable">
+            {(provided) => (
+              <div
+                {...provided.droppableProps}
+                ref={provided.innerRef}
+                id="habits-list"
+                className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
+              >
+                {habits.length === 0 ? (
+                  <div id="empty-habits-placeholder" className="dotted-border-container col-span-full">
+                    <p className="text-lg">No habits added yet. Create your first habit above!</p>
+                  </div>
+                ) : (
+                  habits.map((habit, index) => (
+                    <Draggable key={habit.id} draggableId={habit.id} index={index}>
+                      {(provided) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                        >
+                          <HabitCard
+                            habit={habit}
+                            onEdit={handleEditHabitClick}
+                            onDelete={handleDeleteClick}
+                          />
+                        </div>
+                      )}
+                    </Draggable>
+                  ))
+                )}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
       </div>
 
       <DeleteConfirmationModal
