@@ -403,7 +403,7 @@ const HabitSetup: React.FC = () => {
             {frequencyConditions.map((condition, index) => (
               <div key={index} className="flex items-center gap-4">
                 <select
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-value-select"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-value-select text-gray-900 bg-white"
                   value={condition.trackingValue}
                   onChange={(e) => handleFrequencyChange(index, "trackingValue", e.target.value)}
                 >
