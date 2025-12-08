@@ -151,6 +151,11 @@ const RecordedEntries: React.FC = () => {
       const datesSet = new Set<string>();
 
       filteredTrackingRecords.forEach(record => {
+        // Skip free-text habits entirely
+        const habitForRecord = habitsData?.find(h => String(h.id) === String(record.habit_id));
+        if (habitForRecord && habitForRecord.type === 'text_field') {
+          return;
+        }
         datesSet.add(record.date);
         if (!newDailyTracking[record.date]) {
           newDailyTracking[record.date] = {};
@@ -212,6 +217,11 @@ const RecordedEntries: React.FC = () => {
       } else {
         const newDailyTracking: DailyTrackingState = {};
         allTrackingData.forEach(record => {
+          // Skip free-text habits entirely
+          const habitForRecord = habitsData?.find(h => String(h.id) === String(record.habit_id));
+          if (habitForRecord && habitForRecord.type === 'text_field') {
+            return;
+          }
           if (!newDailyTracking[record.date]) {
             newDailyTracking[record.date] = {};
           }
