@@ -2,6 +2,7 @@ export interface Habit {
   id: string;
   name: string;
   color: string;
+  type: 'tracking' | 'text_field'; // New field: 'tracking' for values/frequency, 'text_field' for free text
   trackingValues: string[];
   frequencyConditions: { trackingValue: string; frequency: "weekly" | "monthly"; count: number }[];
   fineAmount: number;

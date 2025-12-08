@@ -5,6 +5,7 @@ export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
     id: supabaseHabit.id,
     name: supabaseHabit.name,
     color: supabaseHabit.color,
+    type: supabaseHabit.type || 'tracking', // Map new field, default to 'tracking'
     trackingValues: supabaseHabit.tracking_values || [],
     frequencyConditions: (supabaseHabit.frequency_conditions || []).map((cond: any) => ({
       trackingValue: cond.trackingValue,

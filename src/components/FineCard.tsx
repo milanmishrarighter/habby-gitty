@@ -61,8 +61,8 @@ const FineCard: React.FC<FineCardProps> = ({
       const existingFinesForPeriod = finesStatus[periodKey] || {};
 
       habits.forEach(habit => {
-        // Only process 'tracking' type habits for fines
-        if (habit.type !== 'tracking') return;
+        // Removed the habit.type !== 'tracking' check for now.
+        // All habits are implicitly 'tracking' until the 'text_field' type is implemented.
 
         (habit.frequencyConditions || []).forEach(condition => {
           if (condition.frequency === periodType) {
