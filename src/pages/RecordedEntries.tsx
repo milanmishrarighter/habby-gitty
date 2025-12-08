@@ -191,11 +191,14 @@ const RecordedEntries: React.FC = () => {
 
     // If no habit filters were applied, we still need to fetch all tracking data for the displayed entries
     if (filterHabitIds.length === 0 && entriesData && entriesData.length > 0) {
-      const datesOfDisplayedEntries = entriesData.map(entry => entry.date);
+      // Using a date range avoids extremely long IN() queries that can fail when many dates are present
+      const maxDate = entriesData[0].date; // entriesData is ordered descending by date
+      const minDate = entriesData[entriesData.length - 1].date;
       const { data: allTrackingData, error: allTrackingError } = await supabase
         .from('daily_habit_tracking')
         .select('*')
-        .in('date', datesOfDisplayedEntries);
+        .gte('date', minDate)
+        .lte('date', maxDate);
 
       if (allTrackingError) {
         console.error("Error fetching all daily tracking:", allTrackingError);
