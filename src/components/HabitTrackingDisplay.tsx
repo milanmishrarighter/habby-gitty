@@ -32,7 +32,11 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
         // Normalize ids to strings to avoid strict equality mismatches (e.g., number vs string vs uuid string)
         const habitId = String(habitIdRaw);
         const habit = allHabits.find(h => String(h.id) === habitId);
-        if (!habit) return null;
+
+        // Fallbacks if habit metadata is missing (e.g., old habits not returned due to user_id/RLS)
+        const name = habit?.name ?? "Unknown habit";
+        const color = habit?.color ?? "#9ca3af"; // gray-400
+        const type = habit?.type; // may be undefined if not found
 
         // Normalize trackedValues to an array of strings
         const trackedValuesArray: string[] = Array.isArray(trackingInfo.trackedValues)
@@ -41,19 +45,20 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
               ? [trackingInfo.trackedValues]
               : []);
 
-        if (habit.type === "tracking" && trackedValuesArray.length > 0) {
+        // Show tracked value if it's a tracking habit OR if we can infer tracking from having tracked values
+        if ((type === "tracking" || (!type && trackedValuesArray.length > 0)) && trackedValuesArray.length > 0) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
-              <span className="font-medium">{habit.name}:</span>
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
+              <span className="font-medium">{name}:</span>
               <span>{trackedValuesArray[0]}</span>
             </li>
           );
-        } else if (habit.type === "text_field" && trackingInfo.textValue && trackingInfo.textValue.trim() !== "") {
+        } else if ((type === "text_field" || (!type && trackingInfo.textValue)) && trackingInfo.textValue && trackingInfo.textValue.trim() !== "") {
           return (
             <li key={habitId} className="flex items-start gap-2 text-sm text-gray-700">
-              <div className="w-3 h-3 rounded-full mt-1" style={{ backgroundColor: habit.color }}></div>
-              <span className="font-medium">{habit.name}:</span>
+              <div className="w-3 h-3 rounded-full mt-1" style={{ backgroundColor: color }}></div>
+              <span className="font-medium">{name}:</span>
               <span className="flex-1 italic">{trackingInfo.textValue}</span>
             </li>
           );
@@ -61,7 +66,7 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700 italic">
               <div className="w-3 h-3 rounded-full bg-gray-400"></div>
-              <span className="font-medium">{habit.name}:</span>
+              <span className="font-medium">{name}:</span>
               <span>Out-of-Control Miss</span>
             </li>
           );
