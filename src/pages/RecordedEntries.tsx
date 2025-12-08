@@ -90,7 +90,7 @@ const RecordedEntries: React.FC = () => {
     if (filterHabitIds.length > 0) {
       let trackingDatesQuery = supabase
         .from('daily_habit_tracking')
-        .select('date, habit_id, tracked_values, text_value, is_out_of_control_miss'); // Select all tracking fields
+        .select('*'); // Select ALL fields so normalization can read legacy columns
 
       const globalOrConditions: string[] = [];
 
@@ -103,7 +103,12 @@ const RecordedEntries: React.FC = () => {
         if (habit.type === 'tracking') {
           const habitSpecificValueConditions: string[] = [];
           if (habitFilter.selectedTrackingValues.length > 0) {
-            habitSpecificValueConditions.push(`tracked_values.cs.{${habitFilter.selectedTrackingValues.map(v => `"${v}"`).join(',')}}`);
+            // Match both new array column and legacy single-value columns
+            const perValueOrs = habitFilter.selectedTrackingValues.map((v) => {
+              const quoted = `"${v}"`;
+              return `or(tracked_values.cs.{${quoted}},tracked_value.eq.${quoted},tracking_value.eq.${quoted},value.eq.${quoted})`;
+            });
+            habitSpecificValueConditions.push(`or(${perValueOrs.join(',')})`);
           }
           if (habitFilter.includeOutOfControlMiss) {
             habitSpecificValueConditions.push(`is_out_of_control_miss.eq.true`);
