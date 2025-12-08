@@ -14,6 +14,7 @@ import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount,
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, getISOWeek, eachDayOfInterval } from 'date-fns'; // Added getISOWeek, eachDayOfInterval
+import { getTrackedValuesFromRecord, getTextValueFromRecord } from "@/utils/trackingUtils";
 import { AppSettings } from "@/types/appSettings"; // Import AppSettings
 
 interface EditDailyEntryModalProps {
@@ -131,9 +132,9 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
           const initialTracking: DailyTrackingState = {};
           trackingData.forEach(record => {
             initialTracking[record.habit_id] = {
-              trackedValues: record.tracked_values || [],
-              textValue: record.text_value || undefined,
-              isOutOfControlMiss: record.is_out_of_control_miss,
+              trackedValues: getTrackedValuesFromRecord(record),
+              textValue: getTextValueFromRecord(record),
+              isOutOfControlMiss: !!record.is_out_of_control_miss,
             };
           });
           setModalHabitTracking(initialTracking);
@@ -216,9 +217,10 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
               if (!calculatedWeeklyCounts[record.habit_id]) {
                 calculatedWeeklyCounts[record.habit_id] = {};
               }
+              const values = getTrackedValuesFromRecord(record);
               // Only count if not a "WEEK_OFF" entry
-              if (!record.tracked_values?.includes("WEEK_OFF")) {
-                record.tracked_values?.forEach(value => {
+              if (!values.includes("WEEK_OFF")) {
+                values.forEach(value => {
                   calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
                 });
               }
@@ -245,9 +247,10 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
               if (!calculatedMonthlyCounts[record.habit_id]) {
                 calculatedMonthlyCounts[record.habit_id] = {};
               }
+              const values = getTrackedValuesFromRecord(record);
               // Only count if not a "WEEK_OFF" entry
-              if (!record.tracked_values?.includes("WEEK_OFF")) {
-                record.tracked_values?.forEach(value => {
+              if (!values.includes("WEEK_OFF")) {
+                values.forEach(value => {
                   calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
                 });
               }

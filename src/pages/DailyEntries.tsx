@@ -14,6 +14,7 @@ import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount,
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays, isMonday, getISOWeek, eachDayOfInterval } from 'date-fns'; // Added addDays, isMonday, getISOWeek, eachDayOfInterval
+import { getTrackedValuesFromRecord, getTextValueFromRecord } from "@/utils/trackingUtils";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch"; // Import Switch component
 import { AppSettings } from "@/types/appSettings"; // Import AppSettings
@@ -230,9 +231,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       const newDailyTracking: DailyTrackingState = { [entryDate]: {} };
       trackingData.forEach(record => {
         newDailyTracking[entryDate][record.habit_id] = {
-          trackedValues: record.tracked_values || [],
-          textValue: record.text_value || "",
-          isOutOfControlMiss: record.is_out_of_control_miss,
+          trackedValues: getTrackedValuesFromRecord(record),
+          textValue: getTextValueFromRecord(record) || "",
+          isOutOfControlMiss: !!record.is_out_of_control_miss,
         };
       });
       setDailyTracking(newDailyTracking);
@@ -336,9 +337,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           if (!calculatedWeeklyCounts[record.habit_id]) {
             calculatedWeeklyCounts[record.habit_id] = {};
           }
+          const values = getTrackedValuesFromRecord(record);
           // Only count if not a "WEEK_OFF" entry
-          if (!record.tracked_values?.includes("WEEK_OFF")) {
-            record.tracked_values?.forEach(value => {
+          if (!values.includes("WEEK_OFF")) {
+            values.forEach(value => {
               calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
             });
           }
@@ -365,9 +367,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           if (!calculatedMonthlyCounts[record.habit_id]) {
             calculatedMonthlyCounts[record.habit_id] = {};
           }
+          const values = getTrackedValuesFromRecord(record);
           // Only count if not a "WEEK_OFF" entry
-          if (!record.tracked_values?.includes("WEEK_OFF")) {
-            record.tracked_values?.forEach(value => {
+          if (!values.includes("WEEK_OFF")) {
+            values.forEach(value => {
               calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
             });
           }
