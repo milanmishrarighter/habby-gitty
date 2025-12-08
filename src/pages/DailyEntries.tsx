@@ -3,6 +3,7 @@
 import React from "react";
 import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
+import DailyFreeTextHabitCard from "@/components/DailyFreeTextHabitCard"; // Import new component
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal";
 import { showSuccess, showError, showInfo, dismissToast } from "@/utils/toast";
@@ -21,6 +22,17 @@ interface DailyEntriesProps {
   setActiveTab: (tab: string) => void;
 }
 
+// Updated DailyTracking state structure to accommodate both types of habits
+interface DailyTrackingState {
+  [date: string]: {
+    [habitId: string]: {
+      trackedValues?: string[]; // For 'tracking' type habits
+      textValue?: string; // For 'text_field' type habits
+      isOutOfControlMiss: boolean;
+    };
+  };
+}
+
 const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const getTodayDate = () => {
     const today = new Date();
@@ -32,10 +44,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
   const [entryDate, setEntryDate] = React.useState(getTodayDate());
   const [journalText, setJournalText] = React.useState("");
-  const [moodEmoji, setMoodEmoji] = React.useState(""); // Changed initial state to empty string
-  const [newLearningText, setNewLearningText] = React.useState(""); // New state for new learning text
+  const [moodEmoji, setMoodEmoji] = React.useState("");
+  const [newLearningText, setNewLearningText] = React.useState("");
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }>({});
+  const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingState>({}); // Updated state type
   const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
   const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [currentEntryId, setCurrentEntryId] = React.useState<string | null>(null);
@@ -54,7 +66,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [currentWeekOffRecord, setCurrentWeekOffRecord] = React.useState<WeeklyOffRecord | null>(null);
   const [usedWeekOffsCount, setUsedWeekOffsCount] = React.useState<number>(0);
   const [isWeekOffLoading, setIsWeekOffLoading] = React.useState(false);
-  const [isAuthenticated, setIsAuthenticated] = React.useState(false); // New state for authentication status
+  const [isAuthenticated, setIsAuthenticated] = React.useState(false);
 
   // New states for "nothing learned" feature
   const [yearlyNothingsCount, setYearlyNothingsCount] = React.useState<YearlyNothingsCount | null>(null);
@@ -159,24 +171,24 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const fetchDataForDate = React.useCallback(async () => {
     if (!entryDate) {
       setJournalText("");
-      setMoodEmoji(""); // Reset new learning text
-      setNewLearningText(""); // Reset new learning text
+      setMoodEmoji("");
+      setNewLearningText("");
       setCurrentEntryId(null);
       setDailyTracking({});
       setYearlyProgress({});
       setYearlyOutOfControlMissCounts({});
       setWeeklyTrackingCounts({});
       setMonthlyTrackingCounts({});
-      setCurrentWeekOffRecord(null); // Reset week off record
-      setUsedWeekOffsCount(0); // Reset used week offs
-      setYearlyNothingsCount(null); // Reset yearly nothings count
+      setCurrentWeekOffRecord(null);
+      setUsedWeekOffsCount(0);
+      setYearlyNothingsCount(null);
       return;
     }
 
     const selectedDate = new Date(entryDate);
     const currentYear = selectedDate.getFullYear().toString();
     const currentWeekNumber = getISOWeek(selectedDate);
-    const { data: { user } } = await supabase.auth.getUser(); // Get current user for nothings count
+    const { data: { user } } = await supabase.auth.getUser();
 
     // Fetch daily entry
     const { data: entryData, error: entryError } = await supabase
@@ -189,18 +201,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       console.error("Error fetching daily entry:", entryError);
       showError("Failed to load daily entry.");
       setJournalText("");
-      setMoodEmoji(""); // Reset new learning text
-      setNewLearningText(""); // Reset new learning text
+      setMoodEmoji("");
+      setNewLearningText("");
       setCurrentEntryId(null);
     } else if (entryData) {
       setJournalText(entryData.text);
       setMoodEmoji(entryData.mood);
-      setNewLearningText(entryData.newLearningText || ""); // Set new learning text
+      setNewLearningText(entryData.new_learning_text || "");
       setCurrentEntryId(entryData.id);
     } else {
       setJournalText("");
-      setMoodEmoji(""); // Reset new learning text
-      setNewLearningText(""); // Reset new learning text
+      setMoodEmoji("");
+      setNewLearningText("");
       setCurrentEntryId(null);
     }
 
@@ -215,10 +227,11 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       showError("Failed to load daily habit tracking.");
       setDailyTracking({});
     } else {
-      const newDailyTracking: { [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } = { [entryDate]: {} };
+      const newDailyTracking: DailyTrackingState = { [entryDate]: {} };
       trackingData.forEach(record => {
         newDailyTracking[entryDate][record.habit_id] = {
-          trackedValues: record.tracked_values,
+          trackedValues: record.tracked_values || [],
+          textValue: record.text_value || "",
           isOutOfControlMiss: record.is_out_of_control_miss,
         };
       });
@@ -318,14 +331,17 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     } else {
       const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
       weeklyRecords.forEach(record => {
-        if (!calculatedWeeklyCounts[record.habit_id]) {
-          calculatedWeeklyCounts[record.habit_id] = {};
-        }
-        // Only count if not a "WEEK_OFF" entry
-        if (!record.tracked_values.includes("WEEK_OFF")) {
-          record.tracked_values.forEach(value => {
-            calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
-          });
+        const habit = habits.find(h => h.id === record.habit_id);
+        if (habit?.type === 'tracking') { // Only count for 'tracking' type habits
+          if (!calculatedWeeklyCounts[record.habit_id]) {
+            calculatedWeeklyCounts[record.habit_id] = {};
+          }
+          // Only count if not a "WEEK_OFF" entry
+          if (!record.tracked_values?.includes("WEEK_OFF")) {
+            record.tracked_values?.forEach(value => {
+              calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+            });
+          }
         }
       });
       setWeeklyTrackingCounts(calculatedWeeklyCounts);
@@ -344,14 +360,17 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     } else {
       const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
       monthlyRecords.forEach(record => {
-        if (!calculatedMonthlyCounts[record.habit_id]) {
-          calculatedMonthlyCounts[record.habit_id] = {};
-        }
-        // Only count if not a "WEEK_OFF" entry
-        if (!record.tracked_values.includes("WEEK_OFF")) {
-          record.tracked_values.forEach(value => {
-            calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
-          });
+        const habit = habits.find(h => h.id === record.habit_id);
+        if (habit?.type === 'tracking') { // Only count for 'tracking' type habits
+          if (!calculatedMonthlyCounts[record.habit_id]) {
+            calculatedMonthlyCounts[record.habit_id] = {};
+          }
+          // Only count if not a "WEEK_OFF" entry
+          if (!record.tracked_values?.includes("WEEK_OFF")) {
+            record.tracked_values?.forEach(value => {
+              calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+            });
+          }
         }
       });
       setMonthlyTrackingCounts(calculatedMonthlyCounts);
@@ -425,6 +444,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     saveEntry(true);
   };
 
+  // Unified handler for 'tracking' type habits
   const handleUpdateTracking = async (
     habitId: string,
     date: string,
@@ -444,6 +464,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       date: date,
       habit_id: habitId,
       tracked_values: trackedValuesForDay,
+      text_value: null, // Ensure text_value is null for 'tracking' type
       is_out_of_control_miss: isOutOfControlMiss,
     };
 
@@ -461,6 +482,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           ...(prev[date] || {}),
           [habitId]: {
             trackedValues: trackedValuesForDay,
+            textValue: null,
             isOutOfControlMiss: isOutOfControlMiss,
           },
         },
@@ -536,13 +558,16 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     if (!weeklyError) {
       const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
       weeklyRecords.forEach(record => {
-        if (!calculatedWeeklyCounts[record.habit_id]) {
-          calculatedWeeklyCounts[record.habit_id] = {};
-        }
-        if (!record.tracked_values.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
-          record.tracked_values.forEach(value => {
-            calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
-          });
+        const habit = habits.find(h => h.id === record.habit_id);
+        if (habit?.type === 'tracking') { // Only count for 'tracking' type habits
+          if (!calculatedWeeklyCounts[record.habit_id]) {
+            calculatedWeeklyCounts[record.habit_id] = {};
+          }
+          if (!record.tracked_values?.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
+            record.tracked_values?.forEach(value => {
+              calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+            });
+          }
         }
       });
       setWeeklyTrackingCounts(calculatedWeeklyCounts);
@@ -557,16 +582,60 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     if (!monthlyError) {
       const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
       monthlyRecords.forEach(record => {
-        if (!calculatedMonthlyCounts[record.habit_id]) {
-          calculatedMonthlyCounts[record.habit_id] = {};
-        }
-        if (!record.tracked_values.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
-          record.tracked_values.forEach(value => {
-            calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
-          });
+        const habit = habits.find(h => h.id === record.habit_id);
+        if (habit?.type === 'tracking') { // Only count for 'tracking' type habits
+          if (!calculatedMonthlyCounts[record.habit_id]) {
+            calculatedMonthlyCounts[record.habit_id] = {};
+          }
+          if (!record.tracked_values?.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
+            record.tracked_values?.forEach(value => {
+              calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+            });
+          }
         }
       });
       setMonthlyTrackingCounts(calculatedMonthlyCounts);
+    }
+  };
+
+  // New handler for 'text_field' type habits
+  const handleUpdateFreeTextTracking = async (
+    habitId: string,
+    date: string,
+    textValue: string,
+  ) => {
+    if (currentWeekOffRecord?.is_off) {
+      showError("This week is marked as 'Week Off'. Individual habit tracking is disabled.");
+      return;
+    }
+
+    const dailyTrackingRecord = {
+      date: date,
+      habit_id: habitId,
+      tracked_values: null, // Ensure tracked_values is null for 'text_field' type
+      text_value: textValue.trim() === '' ? null : textValue.trim(),
+      is_out_of_control_miss: false, // Free text habits cannot be out-of-control misses
+    };
+
+    const { error: dailyTrackingError } = await supabase
+      .from('daily_habit_tracking')
+      .upsert(dailyTrackingRecord, { onConflict: 'date,habit_id' });
+
+    if (dailyTrackingError) {
+      console.error("Error updating free text tracking:", dailyTrackingError);
+      throw new Error("Failed to update free text habit tracking.");
+    } else {
+      setDailyTracking(prev => ({
+        ...prev,
+        [date]: {
+          ...(prev[date] || {}),
+          [habitId]: {
+            trackedValues: null,
+            textValue: textValue.trim() === '' ? undefined : textValue.trim(),
+            isOutOfControlMiss: false,
+          },
+        },
+      }));
     }
   };
 
@@ -618,7 +687,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
       // Update daily_habit_tracking for all habits for all days in the week
       const trackingRecordsToUpsert = [];
-      const newDailyTrackingForWeek: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = {};
+      const newDailyTrackingForWeek: DailyTrackingState = {};
 
       for (const day of daysInWeek) {
         const formattedDay = format(day, 'yyyy-MM-dd');
@@ -627,11 +696,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           trackingRecordsToUpsert.push({
             date: formattedDay,
             habit_id: habit.id,
-            tracked_values: ["WEEK_OFF"],
+            tracked_values: ["WEEK_OFF"], // Mark as WEEK_OFF for all habit types
+            text_value: null, // Clear text_value for text_field habits during week off
             is_out_of_control_miss: false,
           });
           newDailyTrackingForWeek[formattedDay][habit.id] = {
             trackedValues: ["WEEK_OFF"],
+            textValue: undefined,
             isOutOfControlMiss: false,
           };
         }
@@ -683,7 +754,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         .from('daily_habit_tracking')
         .delete()
         .in('date', datesInWeek)
-        .contains('tracked_values', ['WEEK_OFF']); // Only delete records explicitly marked "WEEK_OFF"
+        .or('tracked_values.cs.{"WEEK_OFF"},text_value.eq.null'); // Delete records explicitly marked "WEEK_OFF" or where text_value was cleared
 
       if (deleteTrackingError) {
         console.error("Error deleting daily tracking for unmark week off:", deleteTrackingError);
@@ -703,9 +774,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           const formattedDay = format(day, 'yyyy-MM-dd');
           if (updatedPrev[formattedDay]) {
             for (const habit of habits) {
-              if (updatedPrev[formattedDay][habit.id]?.trackedValues.includes("WEEK_OFF")) {
+              if (updatedPrev[formattedDay][habit.id]?.trackedValues?.includes("WEEK_OFF")) {
                 updatedPrev[formattedDay][habit.id] = {
                   trackedValues: [], // Clear tracked values
+                  textValue: undefined, // Clear text value
                   isOutOfControlMiss: false,
                 };
               }
@@ -892,30 +964,49 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {habits.map((habit) => {
               const currentYear = entryDate ? new Date(entryDate).getFullYear().toString() : new Date().getFullYear().toString();
-              const currentYearlyProgress = yearlyProgress[currentYear]?.[habit.id] || 0;
-              const initialTrackedValue = entryDate && dailyTracking[entryDate]?.[habit.id]?.trackedValues?.length > 0
-                ? dailyTracking[entryDate][habit.id].trackedValues[0]
-                : null;
-              const initialIsOutOfControlMiss = entryDate && dailyTracking[entryDate]?.[habit.id]?.isOutOfControlMiss || false;
+              const isWeekOffForThisDay = currentWeekOffRecord?.is_off && eachDayOfInterval({
+                start: startOfWeek(new Date(entryDate), { weekStartsOn: 1 }),
+                end: endOfWeek(new Date(entryDate), { weekStartsOn: 1 })
+              }).some(day => format(day, 'yyyy-MM-dd') === entryDate);
 
-              // Determine if this specific day is part of a "week off"
-              const isWeekOffForThisDay = initialTrackedValue === "WEEK_OFF";
+              if (habit.type === 'tracking') {
+                const currentYearlyProgress = yearlyProgress[currentYear]?.[habit.id] || 0;
+                const initialTrackedValue = entryDate && dailyTracking[entryDate]?.[habit.id]?.trackedValues?.length > 0
+                  ? dailyTracking[entryDate][habit.id].trackedValues![0]
+                  : null;
+                const initialIsOutOfControlMiss = entryDate && dailyTracking[entryDate]?.[habit.id]?.isOutOfControlMiss || false;
 
-              return (
-                <DailyHabitTrackerCard
-                  key={habit.id}
-                  habit={habit}
-                  entryDate={entryDate}
-                  onUpdateTracking={handleUpdateTracking}
-                  currentYearlyProgress={currentYearlyProgress}
-                  initialTrackedValue={initialTrackedValue}
-                  initialIsOutOfControlMiss={initialIsOutOfControlMiss}
-                  yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
-                  weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
-                  monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
-                  isWeekOffForThisDay={isWeekOffForThisDay} // Pass the new prop
-                />
-              );
+                return (
+                  <DailyHabitTrackerCard
+                    key={habit.id}
+                    habit={habit}
+                    entryDate={entryDate}
+                    onUpdateTracking={handleUpdateTracking}
+                    currentYearlyProgress={currentYearlyProgress}
+                    initialTrackedValue={initialTrackedValue}
+                    initialIsOutOfControlMiss={initialIsOutOfControlMiss}
+                    yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
+                    weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
+                    monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
+                    isWeekOffForThisDay={isWeekOffForThisDay}
+                  />
+                );
+              } else if (habit.type === 'text_field') {
+                const initialTextValue = entryDate && dailyTracking[entryDate]?.[habit.id]?.textValue
+                  ? dailyTracking[entryDate][habit.id].textValue!
+                  : null;
+                return (
+                  <DailyFreeTextHabitCard
+                    key={habit.id}
+                    habit={habit}
+                    entryDate={entryDate}
+                    onUpdateTracking={handleUpdateFreeTextTracking}
+                    initialTextValue={initialTextValue}
+                    isWeekOffForThisDay={isWeekOffForThisDay}
+                  />
+                );
+              }
+              return null;
             })}
           </div>
         )}

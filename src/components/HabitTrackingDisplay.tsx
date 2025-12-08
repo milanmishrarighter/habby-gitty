@@ -11,7 +11,13 @@ import { Button } from "@/components/ui/button";
 import { ChevronsUpDown } from "lucide-react";
 
 interface HabitTrackingDisplayProps {
-  habitsTrackedForDay: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } | undefined;
+  habitsTrackedForDay: { 
+    [habitId: string]: { 
+      trackedValues?: string[], // Optional for 'text_field' habits
+      textValue?: string, // New: Optional for 'text_field' habits
+      isOutOfControlMiss: boolean 
+    } 
+  } | undefined;
   allHabits: Habit[];
 }
 
@@ -26,12 +32,20 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
         const habit = allHabits.find(h => h.id === habitId);
         if (!habit) return null;
 
-        if (trackingInfo.trackedValues.length > 0) {
+        if (habit.type === 'tracking' && trackingInfo.trackedValues && trackingInfo.trackedValues.length > 0) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
               <span className="font-medium">{habit.name}:</span>
               <span>{trackingInfo.trackedValues[0]}</span>
+            </li>
+          );
+        } else if (habit.type === 'text_field' && trackingInfo.textValue && trackingInfo.textValue.trim() !== '') {
+          return (
+            <li key={habitId} className="flex items-start gap-2 text-sm text-gray-700">
+              <div className="w-3 h-3 rounded-full mt-1" style={{ backgroundColor: habit.color }}></div>
+              <span className="font-medium">{habit.name}:</span>
+              <span className="flex-1 italic">{trackingInfo.textValue}</span>
             </li>
           );
         } else if (trackingInfo.isOutOfControlMiss) {
