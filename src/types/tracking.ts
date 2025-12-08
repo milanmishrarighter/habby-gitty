@@ -2,8 +2,7 @@ export interface DailyTrackingRecord {
   id: string;
   date: string;
   habit_id: string;
-  tracked_values?: string[]; // Made optional, will be used for 'tracking' type habits
-  text_value?: string; // New field for 'text_field' type habits
+  tracked_values: string[];
   is_out_of_control_miss: boolean; // New field
   created_at: string;
 }
