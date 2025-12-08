@@ -13,9 +13,9 @@ import { ChevronsUpDown } from "lucide-react";
 interface HabitTrackingDisplayProps {
   habitsTrackedForDay: { 
     [habitId: string]: { 
-      trackedValues?: string[], // Optional for 'text_field' habits
-      textValue?: string, // New: Optional for 'text_field' habits
-      isOutOfControlMiss: boolean 
+      trackedValues?: string[] | string; // Accept string[] or string
+      textValue?: string;
+      isOutOfControlMiss: boolean;
     } 
   } | undefined;
   allHabits: Habit[];
@@ -28,19 +28,28 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
     if (!habitsTrackedForDay) return [];
 
     return Object.entries(habitsTrackedForDay)
-      .map(([habitId, trackingInfo]) => {
-        const habit = allHabits.find(h => h.id === habitId);
+      .map(([habitIdRaw, trackingInfo]) => {
+        // Normalize ids to strings to avoid strict equality mismatches (e.g., number vs string vs uuid string)
+        const habitId = String(habitIdRaw);
+        const habit = allHabits.find(h => String(h.id) === habitId);
         if (!habit) return null;
 
-        if (habit.type === 'tracking' && trackingInfo.trackedValues && trackingInfo.trackedValues.length > 0) {
+        // Normalize trackedValues to an array of strings
+        const trackedValuesArray: string[] = Array.isArray(trackingInfo.trackedValues)
+          ? trackingInfo.trackedValues
+          : (typeof trackingInfo.trackedValues === "string" && trackingInfo.trackedValues.trim() !== ""
+              ? [trackingInfo.trackedValues]
+              : []);
+
+        if (habit.type === "tracking" && trackedValuesArray.length > 0) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
               <span className="font-medium">{habit.name}:</span>
-              <span>{trackingInfo.trackedValues[0]}</span>
+              <span>{trackedValuesArray[0]}</span>
             </li>
           );
-        } else if (habit.type === 'text_field' && trackingInfo.textValue && trackingInfo.textValue.trim() !== '') {
+        } else if (habit.type === "text_field" && trackingInfo.textValue && trackingInfo.textValue.trim() !== "") {
           return (
             <li key={habitId} className="flex items-start gap-2 text-sm text-gray-700">
               <div className="w-3 h-3 rounded-full mt-1" style={{ backgroundColor: habit.color }}></div>
@@ -59,7 +68,7 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
         }
         return null;
       })
-      .filter(Boolean); // Remove any null entries
+      .filter(Boolean) as React.ReactNode[]; // Remove any null entries
   }, [habitsTrackedForDay, allHabits]);
 
   if (!habitsTrackedForDay || trackedHabitsList.length === 0) {
