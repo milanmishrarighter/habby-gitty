@@ -26,12 +26,14 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
         const habit = allHabits.find(h => h.id === habitId);
         if (!habit) return null;
 
-        if (trackingInfo.trackedValues.length > 0) {
+        const values = Array.isArray(trackingInfo?.trackedValues) ? trackingInfo.trackedValues : [];
+
+        if (values.length > 0) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
               <span className="font-medium">{habit.name}:</span>
-              <span>{trackingInfo.trackedValues[0]}</span>
+              <span>{values[0]}</span>
             </li>
           );
         } else if (trackingInfo.isOutOfControlMiss) {
