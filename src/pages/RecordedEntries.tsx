@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import HabitTrackingDisplay from "@/components/HabitTrackingDisplay";
 import { mapSupabaseEntryToDailyEntry } from "@/utils/dailyEntryUtils"; // Import the utility
-import { getTrackedValuesFromRecord, getTextValueFromRecord } from "@/utils/trackingUtils"; // Import the utility
+import { getTrackedValuesFromRecord } from "@/utils/trackingUtils"; // Import the utility
 
 // Shadcn UI components for filters
 import { CalendarIcon, XCircle, Check } from "lucide-react";
@@ -162,7 +162,6 @@ const RecordedEntries: React.FC = () => {
         }
         newDailyTracking[record.date][record.habit_id] = {
           trackedValues: getTrackedValuesFromRecord(record),
-          textValue: getTextValueFromRecord(record),
           isOutOfControlMiss: !!record.is_out_of_control_miss,
         };
       });
@@ -227,7 +226,6 @@ const RecordedEntries: React.FC = () => {
           }
           newDailyTracking[record.date][record.habit_id] = {
             trackedValues: getTrackedValuesFromRecord(record),
-            textValue: getTextValueFromRecord(record),
             isOutOfControlMiss: !!record.is_out_of_control_miss,
           };
         });

@@ -38,6 +38,11 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
         const color = habit?.color ?? "#9ca3af"; // gray-400
         const type = habit?.type; // may be undefined if not found
 
+        // For recorded entries, do not display free-text habits
+        if (type === "text_field") {
+          return null;
+        }
+
         // Normalize trackedValues to an array of strings
         const trackedValuesArray: string[] = Array.isArray(trackingInfo.trackedValues)
           ? trackingInfo.trackedValues
@@ -45,8 +50,8 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
               ? [trackingInfo.trackedValues]
               : []);
 
-        // Show tracked value if it's a tracking habit OR if we can infer tracking from having tracked values
-        if ((type === "tracking" || (!type && trackedValuesArray.length > 0)) && trackedValuesArray.length > 0) {
+        // Show tracked value if present
+        if (trackedValuesArray.length > 0) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
@@ -62,9 +67,8 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
               <span>Out-of-Control Miss</span>
             </li>
           );
-        } else if (!trackingInfo.textValue) {
-          // Not a free-text record (no text present) and no explicit tracking value:
-          // still show that the habit was tracked for the day.
+        } else {
+          // No explicit value and not OOC: still show that the habit was tracked for the day.
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
