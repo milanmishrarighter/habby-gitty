@@ -6,8 +6,8 @@ export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
 
   return {
     id: supabaseHabit.id,
-    name: supabaseHabit.name, // Corrected from supabase.habit.name
-    color: supabaseHabit.color, // Corrected from supabase.habit.color
+    name: supabaseHabit.name, // Corrected
+    color: supabaseHabit.color, // Corrected
     type: habitType,
     // Only include trackingValues and frequencyConditions if type is 'tracking'
     ...(habitType === 'tracking' && {
