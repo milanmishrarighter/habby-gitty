@@ -149,11 +149,11 @@ const HabitSetup: React.FC = () => {
       return;
     }
 
-    const newHabitData: any = { // Use 'any' for now to handle conditional properties
+    const newHabitData: any = {
       name: habitName.trim(),
       color: habitColor,
-      type: habitType, // Include habit type
-      hint_text: habitType === 'tracking' ? hintText.trim() : null, // Only save hint text for 'tracking' type
+      type: habitType,
+      hint_text: habitType === 'tracking' ? hintText.trim() : null,
     };
 
     if (habitType === 'tracking') {
@@ -167,8 +167,14 @@ const HabitSetup: React.FC = () => {
         contributingValues: contributingValues,
       };
       newHabitData.allowed_out_of_control_misses = typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0;
+    } else {
+      // Explicitly set tracking-related fields to null/default for 'text_field' type
+      newHabitData.tracking_values = null;
+      newHabitData.frequency_conditions = null;
+      newHabitData.fine_amount = 0; // Assuming 0 is a valid default for fineAmount
+      newHabitData.yearly_goal = null;
+      newHabitData.allowed_out_of_control_misses = 0; // Assuming 0 is a valid default
     }
-    // For 'text_field' type, no additional tracking-specific fields are needed here.
 
     setIsLoading(true);
     const { data, error } = await supabase
