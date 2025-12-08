@@ -1,12 +1,13 @@
 import { Habit } from "@/types/habit";
+import { supabase } from "@/lib/supabase"; // Import supabase client
 
 export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
   const habitType = supabaseHabit.type || 'tracking'; // Default to 'tracking'
 
   return {
     id: supabaseHabit.id,
-    name: supabase.habit.name,
-    color: supabase.habit.color,
+    name: supabaseHabit.name, // Corrected from supabase.habit.name
+    color: supabaseHabit.color, // Corrected from supabase.habit.color
     type: habitType,
     // Only include trackingValues and frequencyConditions if type is 'tracking'
     ...(habitType === 'tracking' && {
@@ -19,11 +20,11 @@ export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
       fineAmount: supabaseHabit.fine_amount || 0,
       yearlyGoal: {
         count: supabaseHabit.yearly_goal?.count || 0,
-        contributingValues: supabase.habit.yearly_goal?.contributingValues || [],
+        contributingValues: supabaseHabit.yearly_goal?.contributingValues || [], // Corrected
       },
-      allowedOutOfControlMisses: supabase.habit.allowed_out_of_control_misses || 0,
+      allowedOutOfControlMisses: supabaseHabit.allowed_out_of_control_misses || 0, // Corrected
     }),
-    hintText: supabase.habit.hint_text || '',
-    created_at: supabase.habit.created_at,
+    hintText: supabaseHabit.hint_text || '', // Corrected
+    created_at: supabaseHabit.created_at,
   };
 };
