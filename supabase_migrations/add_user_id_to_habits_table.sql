@@ -20,11 +20,9 @@ USING (auth.uid() = user_id);
 -- Create a policy to allow authenticated users to update their own habits
 CREATE POLICY "Authenticated users can update their own habits"
 ON habits FOR UPDATE
-TO authenticated
 USING (auth.uid() = user_id);
 
 -- Create a policy to allow authenticated users to delete their own habits
 CREATE POLICY "Authenticated users can delete their own habits"
-TO authenticated
 ON habits FOR DELETE
 USING (auth.uid() = user_id);
