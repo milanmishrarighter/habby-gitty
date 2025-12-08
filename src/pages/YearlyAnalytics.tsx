@@ -82,17 +82,23 @@ const YearlyAnalytics: React.FC = () => {
       const calculatedYearlyTrackingCounts: YearlyTrackingCounts = {};
       let foundTrackingData = false;
       
-      trackingData.forEach(record => {
-        foundTrackingData = true;
-        if (!calculatedYearlyTrackingCounts[record.habit_id]) {
-          calculatedYearlyTrackingCounts[record.habit_id] = {};
-        }
-        
-        record.tracked_values.forEach(value => {
-          calculatedYearlyTrackingCounts[record.habit_id][value] = 
-            (calculatedYearlyTrackingCounts[record.habit_id][value] || 0) + 1;
+      // Fix: Check if trackingData is not null/undefined before forEach
+      if (trackingData && Array.isArray(trackingData)) {
+        trackingData.forEach(record => {
+          foundTrackingData = true;
+          if (!calculatedYearlyTrackingCounts[record.habit_id]) {
+            calculatedYearlyTrackingCounts[record.habit_id] = {};
+          }
+          
+          // Fix: Check if tracked_values exists and is an array
+          if (record.tracked_values && Array.isArray(record.tracked_values)) {
+            record.tracked_values.forEach(value => {
+              calculatedYearlyTrackingCounts[record.habit_id][value] = 
+                (calculatedYearlyTrackingCounts[record.habit_id][value] || 0) + 1;
+            });
+          }
         });
-      });
+      }
 
       setYearlyTrackingCounts(calculatedYearlyTrackingCounts);
 
@@ -112,13 +118,16 @@ const YearlyAnalytics: React.FC = () => {
       const calculatedYearlyProgressDisplay: YearlyProgressDisplay = {};
       let foundProgressData = false;
       
-      progressData.forEach(record => {
-        foundProgressData = true;
-        calculatedYearlyProgressDisplay[record.habit_id] = {
-          progressCount: record.progress_count,
-          goalCount: mappedHabits.find(h => h.id === record.habit_id)?.yearlyGoal?.count || 0,
-        };
-      });
+      // Fix: Check if progressData is not null/undefined before forEach
+      if (progressData && Array.isArray(progressData)) {
+        progressData.forEach(record => {
+          foundProgressData = true;
+          calculatedYearlyProgressDisplay[record.habit_id] = {
+            progressCount: record.progress_count,
+            goalCount: mappedHabits.find(h => h.id === record.habit_id)?.yearlyGoal?.count || 0,
+          };
+        });
+      }
 
       setYearlyProgressDisplay(calculatedYearlyProgressDisplay);
       setHasDataForYear(foundTrackingData || foundProgressData);
@@ -126,7 +135,7 @@ const YearlyAnalytics: React.FC = () => {
     };
 
     fetchData();
-  }, [selectedYear]); // Fixed: Removed the extra array wrapper
+  }, [selectedYear]);
 
   // Calculate year progress for the current year
   const today = new Date();
