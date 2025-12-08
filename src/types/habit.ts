@@ -13,4 +13,5 @@ export interface Habit {
   allowedOutOfControlMisses?: number; // Made optional
   hintText?: string; // New field for hint text
   created_at: string; // Changed to match Supabase's default column name and type
+  userId: string; // New: User ID to link habit to owner
 }

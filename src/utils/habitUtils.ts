@@ -26,5 +26,6 @@ export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
     }),
     hintText: supabaseHabit.hint_text || '', // Corrected
     created_at: supabaseHabit.created_at,
+    userId: supabaseHabit.user_id, // Map user_id
   };
 };

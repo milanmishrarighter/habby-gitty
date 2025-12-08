@@ -149,11 +149,21 @@ const HabitSetup: React.FC = () => {
       return;
     }
 
+    setIsLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      showError("You must be logged in to add a habit.");
+      setIsLoading(false);
+      return;
+    }
+
     const newHabitData: any = {
       name: habitName.trim(),
       color: habitColor,
       type: habitType,
       hint_text: habitType === 'tracking' ? hintText.trim() : null,
+      user_id: user.id, // Include user_id
     };
 
     if (habitType === 'tracking') {
@@ -176,7 +186,6 @@ const HabitSetup: React.FC = () => {
       newHabitData.allowed_out_of_control_misses = 0; // Assuming 0 is a valid default
     }
 
-    setIsLoading(true);
     const { data, error } = await supabase
       .from('habits')
       .insert([newHabitData])
@@ -202,7 +211,7 @@ const HabitSetup: React.FC = () => {
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
-    const { id, name, color, type, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, hintText, created_at } = updatedHabit;
+    const { id, name, color, type, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, hintText, created_at, userId } = updatedHabit;
     
     const updatedHabitData: any = { // Use 'any' for now to handle conditional properties
       name,
@@ -210,6 +219,7 @@ const HabitSetup: React.FC = () => {
       type, // Include type in update
       hint_text: type === 'tracking' ? hintText : null, // Only save hint text for 'tracking' type
       created_at,
+      user_id: userId, // Include user_id in update
     };
 
     if (type === 'tracking') {
