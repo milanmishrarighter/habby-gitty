@@ -130,7 +130,7 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       name: habitName.trim(),
       color: habitColor,
       type: habitType, // Save habit type
-      hintText: hintText.trim(),
+      hintText: habitType === 'tracking' ? hintText.trim() : undefined, // Only save hint text for 'tracking' type, undefined for 'text_field'
       // Conditionally set tracking-specific fields based on type
       ...(habitType === 'tracking' ? {
         trackingValues: tempTrackingValues,
@@ -183,7 +183,12 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
           {/* Habit Type Selector */}
           <div className="w-full">
             <label htmlFor="habit-type-edit" className="block text-sm font-medium text-gray-700 text-left">Habit Type</label>
-            <Select value={habitType} onValueChange={(value: 'tracking' | 'text_field') => setHabitType(value)}>
+            <Select value={habitType} onValueChange={(value: 'tracking' | 'text_field') => {
+              setHabitType(value);
+              if (value === 'text_field') {
+                setHintText(""); // Clear hint text when switching to text_field
+              }
+            }}>
               <SelectTrigger className="w-full mt-1">
                 <SelectValue placeholder="Select habit type" />
               </SelectTrigger>
@@ -196,19 +201,21 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
               Choose 'Tracking' for habits with specific values/goals, or 'Free Text Field' for open-ended entries.
             </p>
           </div>
-          {/* Hint Text Input */}
-          <div className="w-full">
-            <label htmlFor="hint-text-edit" className="block text-sm font-medium text-gray-700 text-left">Hint Text (Optional)</label>
-            <input
-              type="text"
-              id="hint-text-edit"
-              placeholder="e.g., This habit needs 5 'Yes's"
-              className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
-              value={hintText}
-              onChange={(e) => setHintText(e.target.value)}
-            />
-            <p className="text-xs text-gray-500 mt-1 text-left">A short reminder for this habit, displayed on the Daily Entries page.</p>
-          </div>
+          {/* Hint Text Input - Conditionally rendered */}
+          {habitType === 'tracking' && (
+            <div className="w-full">
+              <label htmlFor="hint-text-edit" className="block text-sm font-medium text-gray-700 text-left">Hint Text (Optional)</label>
+              <input
+                type="text"
+                id="hint-text-edit"
+                placeholder="e.g., This habit needs 5 'Yes's"
+                className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
+                value={hintText}
+                onChange={(e) => setHintText(e.target.value)}
+              />
+              <p className="text-xs text-gray-500 mt-1 text-left">A short reminder for this habit, displayed on the Daily Entries page.</p>
+            </div>
+          )}
           {/* Color Picker Input */}
           <div className="w-full">
             <label htmlFor="habit-color-edit" className="block text-sm font-medium text-gray-700 text-left">Assign a Color</label>
