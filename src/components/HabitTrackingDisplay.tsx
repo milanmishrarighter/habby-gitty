@@ -62,6 +62,16 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
               <span>Out-of-Control Miss</span>
             </li>
           );
+        } else if (!trackingInfo.textValue) {
+          // Not a free-text record (no text present) and no explicit tracking value:
+          // still show that the habit was tracked for the day.
+          return (
+            <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
+              <span className="font-medium">{name}</span>
+              <span className="px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-700">Tracked</span>
+            </li>
+          );
         }
         return null;
       })
