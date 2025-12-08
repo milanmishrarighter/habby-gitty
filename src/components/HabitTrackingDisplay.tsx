@@ -54,14 +54,6 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
               <span>{trackedValuesArray[0]}</span>
             </li>
           );
-        } else if ((type === "text_field" || (!type && trackingInfo.textValue)) && trackingInfo.textValue && trackingInfo.textValue.trim() !== "") {
-          return (
-            <li key={habitId} className="flex items-start gap-2 text-sm text-gray-700">
-              <div className="w-3 h-3 rounded-full mt-1" style={{ backgroundColor: color }}></div>
-              <span className="font-medium">{name}:</span>
-              <span className="flex-1 italic">{trackingInfo.textValue}</span>
-            </li>
-          );
         } else if (trackingInfo.isOutOfControlMiss) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700 italic">
