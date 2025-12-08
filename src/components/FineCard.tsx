@@ -57,8 +57,13 @@ const FineCard: React.FC<FineCardProps> = ({
       const datesInPeriod = getDatesInPeriod(periodStart, periodEnd);
       const currentYear = periodStart.getFullYear().toString();
 
+      // Get existing fines for this period from the database
+      const existingFinesForPeriod = finesStatus[periodKey] || {};
+
       habits.forEach(habit => {
-        // Defensive check for frequencyConditions
+        // Removed the habit.type !== 'tracking' check for now.
+        // All habits are implicitly 'tracking' until the 'text_field' type is implemented.
+
         (habit.frequencyConditions || []).forEach(condition => {
           if (condition.frequency === periodType) {
             let actualCount = 0;
@@ -80,21 +85,28 @@ const FineCard: React.FC<FineCardProps> = ({
 
             // Fine logic: if actual count EXCEEDS the condition count
             if (actualCount > condition.count) {
-              const existingFine = finesStatus[periodKey]?.[habit.id]?.find(
+              const existingFine = existingFinesForPeriod[habit.id]?.find(
                 f => f.trackingValue === condition.trackingValue
               );
-              currentFines.push({
-                id: existingFine?.id || '', // Use existing ID or empty string for new fines
-                habitId: habit.id,
-                habitName: habit.name,
-                fineAmount: habit.fineAmount,
-                cause: `Tracking value '${condition.trackingValue}' occurred ${actualCount} times, which exceeds the allowed ${condition.count} times.`,
-                status: existingFine ? existingFine.status : 'unpaid',
-                trackingValue: condition.trackingValue,
-                conditionCount: condition.count,
-                actualCount: actualCount,
-                created_at: existingFine?.created_at || new Date().toISOString(), // Use existing or new timestamp
-              });
+
+              if (existingFine) {
+                // If fine already exists, use its stored details
+                currentFines.push(existingFine);
+              } else {
+                // If it's a new fine, create it with current habit rules
+                currentFines.push({
+                  id: '', // Will be assigned by Supabase on insert
+                  habitId: habit.id,
+                  habitName: habit.name,
+                  fineAmount: habit.fineAmount,
+                  cause: `Tracking value '${condition.trackingValue}' occurred ${actualCount} times, which exceeds the allowed ${condition.count} times.`,
+                  status: 'unpaid', // New fines are unpaid by default
+                  trackingValue: condition.trackingValue,
+                  conditionCount: condition.count,
+                  actualCount: actualCount,
+                  created_at: new Date().toISOString(),
+                });
+              }
             }
 
             // Warning logic for current period: one away from fine limit

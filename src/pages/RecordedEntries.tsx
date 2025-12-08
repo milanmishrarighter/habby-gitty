@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import HabitTrackingDisplay from "@/components/HabitTrackingDisplay";
 import { mapSupabaseEntryToDailyEntry } from "@/utils/dailyEntryUtils"; // Import the utility
+import { getTrackedValuesFromRecord, getTextValueFromRecord } from "@/utils/trackingUtils"; // Import the utility
 
 // Shadcn UI components for filters
 import { CalendarIcon, XCircle, Check } from "lucide-react";
@@ -34,8 +35,20 @@ interface HabitFilterState {
   [habitId: string]: {
     name: string;
     color: string;
-    selectedTrackingValues: string[];
-    includeOutOfControlMiss: boolean;
+    selectedTrackingValues: string[]; // For 'tracking' type
+    includeOutOfControlMiss: boolean; // For 'tracking' type
+    // No specific filter for text_field habits, they are included if the habit is selected
+  };
+}
+
+// Updated DailyTracking state structure to accommodate both types of habits
+interface DailyTrackingState {
+  [date: string]: {
+    [habitId: string]: {
+      trackedValues?: string[]; // For 'tracking' type habits
+      textValue?: string; // For 'text_field' type habits
+      isOutOfControlMiss: boolean;
+    };
   };
 }
 
@@ -47,7 +60,7 @@ const RecordedEntries: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null);
   const [allHabits, setAllHabits] = React.useState<Habit[]>([]); // Renamed to avoid conflict with filter state
-  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
+  const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingState>({}); // Updated state type
 
   // Filter states
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
@@ -77,27 +90,36 @@ const RecordedEntries: React.FC = () => {
     if (filterHabitIds.length > 0) {
       let trackingDatesQuery = supabase
         .from('daily_habit_tracking')
-        .select('date'); // Only need date for initial filtering
+        .select('*'); // Select ALL fields so normalization can read legacy columns
 
       const globalOrConditions: string[] = [];
 
       for (const habitId of filterHabitIds) {
         const habitFilter = filters.selectedHabitFilters[habitId];
-        const habitSpecificValueConditions: string[] = [];
+        const habit = habitsData?.find(h => h.id === habitId); // Find the habit to check its type
 
-        if (habitFilter.selectedTrackingValues.length > 0) {
-          // Supabase `cs` (contains) operator for array
-          habitSpecificValueConditions.push(`tracked_values.cs.{${habitFilter.selectedTrackingValues.map(v => `"${v}"`).join(',')}}`);
-        }
-        if (habitFilter.includeOutOfControlMiss) {
-          habitSpecificValueConditions.push(`is_out_of_control_miss.eq.true`);
-        }
+        if (!habit) continue;
 
-        if (habitSpecificValueConditions.length > 0) {
-          // Combine habit_id with its specific value/miss conditions using AND
-          globalOrConditions.push(`and(habit_id.eq.${habitId},or(${habitSpecificValueConditions.join(',')}))`);
-        } else {
-          // If habit is selected but no specific values/misses, just filter by habit_id
+        if (habit.type === 'tracking') {
+          const habitSpecificValueConditions: string[] = [];
+          if (habitFilter.selectedTrackingValues.length > 0) {
+            // Match both new array column and legacy single-value columns
+            const perValueOrs = habitFilter.selectedTrackingValues.map((v) => {
+              const quoted = `"${v}"`;
+              return `or(tracked_values.cs.{${quoted}},tracked_value.eq.${quoted},tracking_value.eq.${quoted},value.eq.${quoted})`;
+            });
+            habitSpecificValueConditions.push(`or(${perValueOrs.join(',')})`);
+          }
+          if (habitFilter.includeOutOfControlMiss) {
+            habitSpecificValueConditions.push(`is_out_of_control_miss.eq.true`);
+          }
+          if (habitSpecificValueConditions.length > 0) {
+            globalOrConditions.push(`and(habit_id.eq.${habitId},or(${habitSpecificValueConditions.join(',')}))`);
+          } else {
+            globalOrConditions.push(`habit_id.eq.${habitId}`); // If habit is selected but no specific values/misses, just filter by habit_id
+          }
+        } else if (habit.type === 'text_field') {
+          // For text_field habits, if selected, we just need to ensure there's a record for it
           globalOrConditions.push(`habit_id.eq.${habitId}`);
         }
       }
@@ -113,10 +135,10 @@ const RecordedEntries: React.FC = () => {
         trackingDatesQuery = trackingDatesQuery.lte('date', format(filters.dateRange.to, 'yyyy-MM-dd'));
       }
 
-      const { data: filteredTrackingDates, error: filteredTrackingError } = await trackingDatesQuery;
+      const { data: filteredTrackingRecords, error: filteredTrackingError } = await trackingDatesQuery;
 
       if (filteredTrackingError) {
-        console.error("Error fetching filtered tracking dates:", filteredTrackingError);
+        console.error("Error fetching filtered tracking records:", filteredTrackingError);
         showError("Failed to filter entries by habits and values.");
         setDisplayEntries([]);
         setDailyTracking({});
@@ -124,10 +146,31 @@ const RecordedEntries: React.FC = () => {
         return;
       }
 
-      entryDatesToFetch = Array.from(new Set(filteredTrackingDates.map(t => t.date)));
+      // Process filtered tracking records to build dailyTracking and entryDatesToFetch
+      const newDailyTracking: DailyTrackingState = {};
+      const datesSet = new Set<string>();
+
+      filteredTrackingRecords.forEach(record => {
+        // Skip free-text habits entirely
+        const habitForRecord = habitsData?.find(h => String(h.id) === String(record.habit_id));
+        if (habitForRecord && habitForRecord.type === 'text_field') {
+          return;
+        }
+        datesSet.add(record.date);
+        if (!newDailyTracking[record.date]) {
+          newDailyTracking[record.date] = {};
+        }
+        newDailyTracking[record.date][record.habit_id] = {
+          trackedValues: getTrackedValuesFromRecord(record),
+          textValue: getTextValueFromRecord(record),
+          isOutOfControlMiss: !!record.is_out_of_control_miss,
+        };
+      });
+      setDailyTracking(newDailyTracking);
+      entryDatesToFetch = Array.from(datesSet);
+
       if (entryDatesToFetch.length === 0) {
         setDisplayEntries([]);
-        setDailyTracking({});
         setIsLoadingFilters(false);
         return;
       }
@@ -152,67 +195,44 @@ const RecordedEntries: React.FC = () => {
       showError("Failed to load daily entries.");
       setDisplayEntries([]);
     } else {
-      const mappedEntries = (entriesData || []).map(mapSupabaseEntryToDailyEntry); // Use mapping
-      console.log("Fetched and mapped daily entries:", mappedEntries); // Log mapped data
+      const mappedEntries = (entriesData || []).map(mapSupabaseEntryToDailyEntry);
       setDailyEntries(mappedEntries); // Keep all fetched entries in case filters are cleared
       setDisplayEntries(mappedEntries); // Display the filtered ones
     }
 
-    // Fetch daily habit tracking records for the *displayed* entries
-    let allTrackingQuery = supabase.from('daily_habit_tracking').select('*');
-    if (entriesData && entriesData.length > 0) {
-      const datesOfDisplayedEntries = entriesData.map(entry => entry.date);
-      allTrackingQuery = allTrackingQuery.in('date', datesOfDisplayedEntries);
+    // If no habit filters were applied, we still need to fetch all tracking data for the displayed entries
+    if (filterHabitIds.length === 0 && entriesData && entriesData.length > 0) {
+      // Using a date range avoids extremely long IN() queries that can fail when many dates are present
+      const maxDate = entriesData[0].date; // entriesData is ordered descending by date
+      const minDate = entriesData[entriesData.length - 1].date;
+      const { data: allTrackingData, error: allTrackingError } = await supabase
+        .from('daily_habit_tracking')
+        .select('*')
+        .gte('date', minDate)
+        .lte('date', maxDate);
 
-      // Apply habit and value filters to the tracking data itself
-      const filterHabitIdsForTracking = Object.keys(filters?.selectedHabitFilters || {});
-      if (filterHabitIdsForTracking.length > 0) {
-        const globalOrConditionsForTracking: string[] = [];
-        for (const habitId of filterHabitIdsForTracking) {
-          const habitFilter = filters.selectedHabitFilters[habitId];
-          const habitSpecificValueConditions: string[] = [];
-
-          if (habitFilter.selectedTrackingValues.length > 0) {
-            habitSpecificValueConditions.push(`tracked_values.cs.{${habitFilter.selectedTrackingValues.map(v => `"${v}"`).join(',')}}`);
+      if (allTrackingError) {
+        console.error("Error fetching all daily tracking:", allTrackingError);
+        setDailyTracking({});
+      } else {
+        const newDailyTracking: DailyTrackingState = {};
+        allTrackingData.forEach(record => {
+          // Skip free-text habits entirely
+          const habitForRecord = habitsData?.find(h => String(h.id) === String(record.habit_id));
+          if (habitForRecord && habitForRecord.type === 'text_field') {
+            return;
           }
-          if (habitFilter.includeOutOfControlMiss) {
-            habitSpecificValueConditions.push(`is_out_of_control_miss.eq.true`);
+          if (!newDailyTracking[record.date]) {
+            newDailyTracking[record.date] = {};
           }
-
-          if (habitSpecificValueConditions.length > 0) {
-            globalOrConditionsForTracking.push(`and(habit_id.eq.${habitId},or(${habitSpecificValueConditions.join(',')}))`);
-          } else {
-            globalOrConditionsForTracking.push(`habit_id.eq.${habitId}`);
-          }
-        }
-        if (globalOrConditionsForTracking.length > 0) {
-          allTrackingQuery = allTrackingQuery.or(globalOrConditionsForTracking.join(','));
-        }
+          newDailyTracking[record.date][record.habit_id] = {
+            trackedValues: getTrackedValuesFromRecord(record),
+            textValue: getTextValueFromRecord(record),
+            isOutOfControlMiss: !!record.is_out_of_control_miss,
+          };
+        });
+        setDailyTracking(newDailyTracking);
       }
-    } else {
-      // If no entries are displayed, no tracking data is needed
-      setDailyTracking({});
-      setIsLoadingFilters(false);
-      return;
-    }
-
-    const { data: trackingData, error: trackingError } = await allTrackingQuery;
-
-    if (trackingError) {
-      console.error("Error fetching daily tracking:", trackingError);
-      setDailyTracking({});
-    } else {
-      const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = {};
-      trackingData.forEach(record => {
-        if (!newDailyTracking[record.date]) {
-          newDailyTracking[record.date] = {};
-        }
-        newDailyTracking[record.date][record.habit_id] = {
-          trackedValues: record.tracked_values,
-          isOutOfControlMiss: record.is_out_of_control_miss,
-        };
-      });
-      setDailyTracking(newDailyTracking);
     }
     setIsLoadingFilters(false);
   }, []);
@@ -303,58 +323,62 @@ const RecordedEntries: React.FC = () => {
       // Continue with other deletions even if this fails
     } else {
       for (const record of trackingRecordsForDate || []) {
-        // Decrement yearly out-of-control miss counts if applicable
-        if (record.is_out_of_control_miss) {
-          const { data: currentMissCountData, error: fetchMissCountError } = await supabase
-            .from('yearly_out_of_control_miss_counts')
-            .select('id, used_count')
-            .eq('habit_id', record.habit_id)
-            .eq('year', currentYear)
-            .single();
-
-          if (fetchMissCountError && fetchMissCountError.code !== 'PGRST116') {
-            console.error("Error fetching yearly miss count for decrement:", fetchMissCountError);
-            showError("Failed to update out-of-control miss count.");
-          } else if (currentMissCountData) {
-            const newUsedCount = Math.max(0, currentMissCountData.used_count - 1);
-            const { error: updateMissCountError } = await supabase
-              .from('yearly_out_of_control_miss_counts')
-              .update({ used_count: newUsedCount })
-              .eq('id', currentMissCountData.id);
-
-            if (updateMissCountError) {
-              console.error("Error decrementing yearly miss count:", updateMissCountError);
-              showError("Failed to decrement yearly habit miss count.");
-            }
-          }
-        }
-
-        // Decrement yearly habit progress if tracked values contributed to a goal
         const habit = allHabits.find(h => h.id === record.habit_id);
-        if (habit && habit.yearlyGoal && habit.yearlyGoal.contributingValues && record.tracked_values.length > 0) {
-          const trackedValue = record.tracked_values[0];
-          if (habit.yearlyGoal.contributingValues.includes(trackedValue)) {
-            const { data: currentProgressData, error: fetchProgressError } = await supabase
-              .from('yearly_habit_progress')
-              .select('progress_count')
+        if (!habit) continue;
+
+        if (habit.type === 'tracking') {
+          // Decrement yearly out-of-control miss counts if applicable
+          if (record.is_out_of_control_miss) {
+            const { data: currentMissCountData, error: fetchMissCountError } = await supabase
+              .from('yearly_out_of_control_miss_counts')
+              .select('id, used_count')
               .eq('habit_id', record.habit_id)
               .eq('year', currentYear)
               .single();
 
-            if (fetchProgressError && fetchProgressError.code !== 'PGRST116') {
-              console.error("Error fetching yearly progress for decrement:", fetchProgressError);
-              showError("Failed to update yearly habit progress.");
-            } else if (currentProgressData) {
-              const newProgressCount = Math.max(0, currentProgressData.progress_count - 1);
-              const { error: updateProgressError } = await supabase
-                .from('yearly_habit_progress')
-                .update({ progress_count: newProgressCount })
-                .eq('habit_id', record.habit_id)
-                .eq('year', currentYear);
+            if (fetchMissCountError && fetchMissCountError.code !== 'PGRST116') {
+              console.error("Error fetching yearly miss count for decrement:", fetchMissCountError);
+              showError("Failed to update out-of-control miss count.");
+            } else if (currentMissCountData) {
+              const newUsedCount = Math.max(0, currentMissCountData.used_count - 1);
+              const { error: updateMissCountError } = await supabase
+                .from('yearly_out_of_control_miss_counts')
+                .update({ used_count: newUsedCount })
+                .eq('id', currentMissCountData.id);
 
-              if (updateProgressError) {
-                console.error("Error decrementing yearly progress:", updateProgressError);
-                showError("Failed to decrement yearly habit progress.");
+              if (updateMissCountError) {
+                console.error("Error decrementing yearly miss count:", updateMissCountError);
+                showError("Failed to decrement yearly habit miss count.");
+              }
+            }
+          }
+
+          // Decrement yearly habit progress if tracked values contributed to a goal
+          if (habit.yearlyGoal && habit.yearlyGoal.contributingValues && record.tracked_values && record.tracked_values.length > 0) {
+            const trackedValue = record.tracked_values[0];
+            if (habit.yearlyGoal.contributingValues.includes(trackedValue)) {
+              const { data: currentProgressData, error: fetchProgressError } = await supabase
+                .from('yearly_habit_progress')
+                .select('progress_count')
+                .eq('habit_id', record.habit_id)
+                .eq('year', currentYear)
+                .single();
+
+              if (fetchProgressError && fetchProgressError.code !== 'PGRST116') {
+                console.error("Error fetching yearly progress for decrement:", fetchProgressError);
+                showError("Failed to update yearly habit progress.");
+              } else if (currentProgressData) {
+                const newProgressCount = Math.max(0, currentProgressData.progress_count - 1);
+                const { error: updateProgressError } = await supabase
+                  .from('yearly_habit_progress')
+                  .update({ progress_count: newProgressCount })
+                  .eq('habit_id', record.habit_id)
+                  .eq('year', currentYear);
+
+                if (updateProgressError) {
+                  console.error("Error decrementing yearly progress:", updateProgressError);
+                  showError("Failed to decrement yearly habit progress.");
+                }
               }
             }
           }
@@ -429,7 +453,7 @@ const RecordedEntries: React.FC = () => {
   const handleSaveEditedEntry = async (
     updatedEntry: DailyEntry,
     oldDate: string,
-    updatedHabitTracking: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }
+    updatedHabitTracking: { [habitId: string]: { trackedValues?: string[], textValue?: string, isOutOfControlMiss: boolean } } // Updated type
   ) => {
     const { id, date: newDate, text, mood, newLearningText, timestamp } = updatedEntry;
     const oldYear = new Date(oldDate).getFullYear().toString();
@@ -445,39 +469,41 @@ const RecordedEntries: React.FC = () => {
 
         if (!habit) continue;
 
-        // Decrement yearly out-of-control miss counts for old year
-        if (trackingInfo.isOutOfControlMiss) {
-          const { data: currentMissCountData, error: fetchMissCountError } = await supabase
-            .from('yearly_out_of_control_miss_counts')
-            .select('id, used_count')
-            .eq('habit_id', habitId)
-            .eq('year', oldYear)
-            .single();
-
-          if (!fetchMissCountError && currentMissCountData) {
-            const newUsedCount = Math.max(0, currentMissCountData.used_count - 1);
-            await supabase
+        if (habit.type === 'tracking') {
+          // Decrement yearly out-of-control miss counts for old year
+          if (trackingInfo.isOutOfControlMiss) {
+            const { data: currentMissCountData, error: fetchMissCountError } = await supabase
               .from('yearly_out_of_control_miss_counts')
-              .update({ used_count: newUsedCount })
-              .eq('id', currentMissCountData.id);
+              .select('id, used_count')
+              .eq('habit_id', habitId)
+              .eq('year', oldYear)
+              .single();
+
+            if (!fetchMissCountError && currentMissCountData) {
+              const newUsedCount = Math.max(0, currentMissCountData.used_count - 1);
+              await supabase
+                .from('yearly_out_of_control_miss_counts')
+                .update({ used_count: newUsedCount })
+                .eq('id', currentMissCountData.id);
+            }
           }
-        }
 
-        // Decrement yearly habit progress for old year
-        if (trackingInfo.trackedValues.length > 0 && habit.yearlyGoal?.contributingValues?.includes(trackingInfo.trackedValues[0])) {
-          const { data: currentProgressData, error: fetchProgressError } = await supabase
-            .from('yearly_habit_progress')
-            .select('id, progress_count')
-            .eq('habit_id', habitId)
-            .eq('year', oldYear)
-            .single();
-
-          if (!fetchProgressError && currentProgressData) {
-            const newProgressCount = Math.max(0, currentProgressData.progress_count - 1);
-            await supabase
+          // Decrement yearly habit progress for old year
+          if (trackingInfo.trackedValues && trackingInfo.trackedValues.length > 0 && habit.yearlyGoal?.contributingValues?.includes(trackingInfo.trackedValues[0])) {
+            const { data: currentProgressData, error: fetchProgressError } = await supabase
               .from('yearly_habit_progress')
-              .update({ progress_count: newProgressCount })
-              .eq('id', currentProgressData.id);
+              .select('id, progress_count')
+              .eq('habit_id', habitId)
+              .eq('year', oldYear)
+              .single();
+
+            if (!fetchProgressError && currentProgressData) {
+              const newProgressCount = Math.max(0, currentProgressData.progress_count - 1);
+              await supabase
+                .from('yearly_habit_progress')
+                .update({ progress_count: newProgressCount })
+                .eq('id', currentProgressData.id);
+            }
           }
         }
       }
@@ -518,12 +544,29 @@ const RecordedEntries: React.FC = () => {
       }
 
       // --- Step 3: Insert new daily_habit_tracking records for the NEW date ---
-      const newTrackingRecords = Object.entries(updatedHabitTracking).map(([habitId, trackingInfo]) => ({
-        date: newDate,
-        habit_id: habitId,
-        tracked_values: trackingInfo.trackedValues,
-        is_out_of_control_miss: trackingInfo.isOutOfControlMiss,
-      }));
+      const newTrackingRecords = Object.entries(updatedHabitTracking).map(([habitId, trackingInfo]) => {
+        const habit = allHabits.find(h => h.id === habitId);
+        if (!habit) return null;
+
+        if (habit.type === 'tracking') {
+          return {
+            date: newDate,
+            habit_id: habitId,
+            tracked_values: trackingInfo.trackedValues || [],
+            text_value: null,
+            is_out_of_control_miss: trackingInfo.isOutOfControlMiss,
+          };
+        } else if (habit.type === 'text_field') {
+          return {
+            date: newDate,
+            habit_id: habitId,
+            tracked_values: null,
+            text_value: trackingInfo.textValue || null,
+            is_out_of_control_miss: false, // Text field habits cannot be out-of-control misses
+          };
+        }
+        return null;
+      }).filter(Boolean);
 
       if (newTrackingRecords.length > 0) {
         const { error: insertNewTrackingError } = await supabase
@@ -543,47 +586,49 @@ const RecordedEntries: React.FC = () => {
 
         if (!habit) continue;
 
-        // Increment yearly out-of-control miss counts for new year
-        if (trackingInfo.isOutOfControlMiss) {
-          const { data: currentMissCountData, error: fetchMissCountError } = await supabase
-            .from('yearly_out_of_control_miss_counts')
-            .select('id, used_count')
-            .eq('habit_id', habitId)
-            .eq('year', newYear)
-            .single();
+        if (habit.type === 'tracking') {
+          // Increment yearly out-of-control miss counts for new year
+          if (trackingInfo.isOutOfControlMiss) {
+            const { data: currentMissCountData, error: fetchMissCountError } = await supabase
+              .from('yearly_out_of_control_miss_counts')
+              .select('id, used_count')
+              .eq('habit_id', habitId)
+              .eq('year', newYear)
+              .single();
 
-          if (!fetchMissCountError && currentMissCountData) {
-            const newUsedCount = currentMissCountData.used_count + 1;
-            await supabase
-              .from('yearly_out_of_control_miss_counts')
-              .update({ used_count: newUsedCount })
-              .eq('id', currentMissCountData.id);
-          } else if (fetchMissCountError?.code === 'PGRST116') { // No record exists, insert new
-            await supabase
-              .from('yearly_out_of_control_miss_counts')
-              .insert({ habit_id: habitId, year: newYear, used_count: 1 });
+            if (!fetchMissCountError && currentMissCountData) {
+              const newUsedCount = currentMissCountData.used_count + 1;
+              await supabase
+                .from('yearly_out_of_control_miss_counts')
+                .update({ used_count: newUsedCount })
+                .eq('id', currentMissCountData.id);
+            } else if (fetchMissCountError?.code === 'PGRST116') { // No record exists, insert new
+              await supabase
+                .from('yearly_out_of_control_miss_counts')
+                .insert({ habit_id: habitId, year: newYear, used_count: 1 });
+            }
           }
-        }
 
-        // Increment yearly habit progress for new year
-        if (trackingInfo.trackedValues.length > 0 && habit.yearlyGoal?.contributingValues?.includes(trackingInfo.trackedValues[0])) {
-          const { data: currentProgressData, error: fetchProgressError } = await supabase
-            .from('yearly_habit_progress')
-            .select('id, progress_count')
-            .eq('habit_id', habitId)
-            .eq('year', newYear)
-            .single();
+          // Increment yearly habit progress for new year
+          if (trackingInfo.trackedValues && trackingInfo.trackedValues.length > 0 && habit.yearlyGoal?.contributingValues?.includes(trackingInfo.trackedValues[0])) {
+            const { data: currentProgressData, error: fetchProgressError } = await supabase
+              .from('yearly_habit_progress')
+              .select('id, progress_count')
+              .eq('habit_id', habitId)
+              .eq('year', newYear)
+              .single();
 
-          if (!fetchProgressError && currentProgressData) {
-            const newProgressCount = currentProgressData.progress_count + 1;
-            await supabase
-              .from('yearly_habit_progress')
-              .update({ progress_count: newProgressCount })
-              .eq('id', currentProgressData.id);
-          } else if (fetchProgressError?.code === 'PGRST116') { // No record exists, insert new
-            await supabase
-              .from('yearly_habit_progress')
-              .insert({ habit_id: habitId, year: newYear, progress_count: 1 });
+            if (!fetchProgressError && currentProgressData) {
+              const newProgressCount = currentProgressData.progress_count + 1;
+              await supabase
+                .from('yearly_habit_progress')
+                .update({ progress_count: newProgressCount })
+                .eq('id', currentProgressData.id);
+            } else if (fetchProgressError?.code === 'PGRST116') { // No record exists, insert new
+              await supabase
+                .from('yearly_habit_progress')
+                .insert({ habit_id: habitId, year: newYear, progress_count: 1 });
+            }
           }
         }
       }
@@ -644,6 +689,37 @@ const RecordedEntries: React.FC = () => {
           await supabase
             .from('yearly_nothings_counts')
             .insert({ user_id: user.id, year: newYear, count: 1 });
+        }
+      }
+
+      // Also update daily_habit_tracking records for the same date if values changed
+      for (const habitId in updatedHabitTracking) {
+        const trackingInfo = updatedHabitTracking[habitId];
+        const habit = allHabits.find(h => h.id === habitId);
+        if (!habit) continue;
+
+        if (habit.type === 'tracking') {
+          const { error: updateTrackingError } = await supabase
+            .from('daily_habit_tracking')
+            .upsert({
+              date: newDate,
+              habit_id: habitId,
+              tracked_values: trackingInfo.trackedValues || [],
+              text_value: null,
+              is_out_of_control_miss: trackingInfo.isOutOfControlMiss,
+            }, { onConflict: 'date,habit_id' });
+          if (updateTrackingError) console.error("Error updating tracking for same date:", updateTrackingError);
+        } else if (habit.type === 'text_field') {
+          const { error: updateTrackingError } = await supabase
+            .from('daily_habit_tracking')
+            .upsert({
+              date: newDate,
+              habit_id: habitId,
+              tracked_values: null,
+              text_value: trackingInfo.textValue || null,
+              is_out_of_control_miss: false,
+            }, { onConflict: 'date,habit_id' });
+          if (updateTrackingError) console.error("Error updating text tracking for same date:", updateTrackingError);
         }
       }
     }
@@ -737,10 +813,10 @@ const RecordedEntries: React.FC = () => {
                       {selectedHabitFilters[habit.id] && <Check className="ml-auto h-4 w-4" />}
                     </div>
                   </DropdownMenuCheckboxItem>
-                  {selectedHabitFilters[habit.id] && (
+                  {selectedHabitFilters[habit.id] && habit.type === 'tracking' && (
                     <div className="ml-6 border-l pl-2 py-1">
                       <DropdownMenuLabel className="text-xs text-gray-500">Values for {habit.name}</DropdownMenuLabel>
-                      {habit.trackingValues.length > 0 ? (
+                      {habit.trackingValues && habit.trackingValues.length > 0 ? (
                         habit.trackingValues.map((value) => (
                           <DropdownMenuCheckboxItem
                             key={value}
@@ -754,7 +830,7 @@ const RecordedEntries: React.FC = () => {
                       ) : (
                         <DropdownMenuLabel className="text-xs text-gray-400 italic">No tracking values</DropdownMenuLabel>
                       )}
-                      {habit.allowedOutOfControlMisses > 0 && (
+                      {habit.allowedOutOfControlMisses && habit.allowedOutOfControlMisses > 0 && (
                         <DropdownMenuCheckboxItem
                           checked={selectedHabitFilters[habit.id]?.includeOutOfControlMiss}
                           onCheckedChange={(checked) => handleOutOfControlMissSelect(habit.id, checked)}
@@ -763,6 +839,13 @@ const RecordedEntries: React.FC = () => {
                           Out-of-Control Miss
                         </DropdownMenuCheckboxItem>
                       )}
+                    </div>
+                  )}
+                  {selectedHabitFilters[habit.id] && habit.type === 'text_field' && (
+                    <div className="ml-6 border-l pl-2 py-1">
+                      <DropdownMenuLabel className="text-xs text-gray-400 italic">
+                        (Free text field - always included if habit selected)
+                      </DropdownMenuLabel>
                     </div>
                   )}
                   <DropdownMenuSeparator />
@@ -843,7 +926,7 @@ const RecordedEntries: React.FC = () => {
 
       <DeleteConfirmationModal
         isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalModal(false)}
+        onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={confirmDelete}
         itemToDeleteName={entryToDelete ? `the entry for ${entryToDelete.date}` : "this entry"}
       />

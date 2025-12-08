@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import EmojiPicker from "@/components/EmojiPicker";
 import DailyHabitTrackerCard from "@/components/DailyHabitTrackerCard";
+import DailyFreeTextHabitCard from "@/components/DailyFreeTextHabitCard"; // Import new component
 import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal";
 import { showSuccess, showError } from "@/utils/toast";
 import { Habit } from "@/types/habit";
@@ -13,6 +14,7 @@ import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount,
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, getISOWeek, eachDayOfInterval } from 'date-fns'; // Added getISOWeek, eachDayOfInterval
+import { getTrackedValuesFromRecord, getTextValueFromRecord } from "@/utils/trackingUtils";
 import { AppSettings } from "@/types/appSettings"; // Import AppSettings
 
 interface EditDailyEntryModalProps {
@@ -23,31 +25,40 @@ interface EditDailyEntryModalProps {
   onSave: (
     updatedEntry: DailyEntry,
     oldDate: string,
-    updatedHabitTracking: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }
+    updatedHabitTracking: { [habitId: string]: { trackedValues?: string[], textValue?: string, isOutOfControlMiss: boolean } } // Updated type
   ) => Promise<void>;
+}
+
+// Updated DailyTracking state structure to accommodate both types of habits
+interface DailyTrackingState {
+  [habitId: string]: {
+    trackedValues?: string[]; // For 'tracking' type habits
+    textValue?: string; // For 'text_field' type habits
+    isOutOfControlMiss: boolean;
+  };
 }
 
 const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClose, initialEntry, onSave }) => {
   const [editedDate, setEditedDate] = React.useState(initialEntry?.date || "");
   const [journalText, setJournalText] = React.useState(initialEntry?.text || "");
-  const [moodEmoji, setMoodEmoji] = React.useState(initialEntry?.mood || ""); // Changed initial state to empty string
-  const [newLearningText, setNewLearningText] = React.useState(initialEntry?.newLearningText || ""); // New state
+  const [moodEmoji, setMoodEmoji] = React.useState(initialEntry?.mood || "");
+  const [newLearningText, setNewLearningText] = React.useState(initialEntry?.newLearningText || "");
   const [habits, setHabits] = React.useState<Habit[]>([]);
   // This state will hold the tracking values for the entry being edited, regardless of editedDate
-  const [modalHabitTracking, setModalHabitTracking] = React.useState<{ [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }>({});
+  const [modalHabitTracking, setModalHabitTracking] = React.useState<DailyTrackingState>({}); // Updated state type
   const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
   const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
   const [weeklyTrackingCounts, setWeeklyTrackingCounts] = React.useState<{ [habitId: string]: { [trackingValue: string]: number } }>({});
   const [monthlyTrackingCounts, setMonthlyTrackingCounts] = React.useState<{ [habitId: string]: { [trackingValue: string]: number } }>({});
-  const [currentWeekOffRecord, setCurrentWeekOffRecord] = React.useState<WeeklyOffRecord | null>(null); // New state
-  const [appSettings, setAppSettings] = React.useState<AppSettings | null>(null); // New state
+  const [currentWeekOffRecord, setCurrentWeekOffRecord] = React.useState<WeeklyOffRecord | null>(null);
+  const [appSettings, setAppSettings] = React.useState<AppSettings | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
 
   const [showOverwriteConfirmModal, setShowOverwriteConfirmModal] = React.useState(false);
   const [pendingSaveData, setPendingSaveData] = React.useState<{
     updatedEntry: DailyEntry;
     oldDate: string;
-    updatedHabitTracking: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } };
+    updatedHabitTracking: DailyTrackingState; // Updated type
   } | null>(null);
 
   // Reset states when modal opens or initialEntry changes
@@ -56,13 +67,13 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
       setEditedDate(initialEntry.date);
       setJournalText(initialEntry.text);
       setMoodEmoji(initialEntry.mood);
-      setNewLearningText(initialEntry.newLearningText || ""); // Set new field
+      setNewLearningText(initialEntry.newLearningText || "");
       setModalHabitTracking({}); // Clear tracking to refetch for initialEntry.date
       setYearlyProgress({});
       setYearlyOutOfControlMissCounts({});
       setWeeklyTrackingCounts({});
       setMonthlyTrackingCounts({});
-      setCurrentWeekOffRecord(null); // Reset week off record
+      setCurrentWeekOffRecord(null);
       setHabits([]); // Clear habits to refetch
       setPendingSaveData(null);
       setShowOverwriteConfirmModal(false);
@@ -118,11 +129,12 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
           showError("Failed to load initial daily habit tracking.");
           setModalHabitTracking({});
         } else {
-          const initialTracking: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } = {};
+          const initialTracking: DailyTrackingState = {};
           trackingData.forEach(record => {
             initialTracking[record.habit_id] = {
-              trackedValues: record.tracked_values,
-              isOutOfControlMiss: record.is_out_of_control_miss,
+              trackedValues: getTrackedValuesFromRecord(record),
+              textValue: getTextValueFromRecord(record),
+              isOutOfControlMiss: !!record.is_out_of_control_miss,
             };
           });
           setModalHabitTracking(initialTracking);
@@ -200,14 +212,18 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
         } else {
           const calculatedWeeklyCounts: { [hId: string]: { [tValue: string]: number } } = {};
           weeklyRecords.forEach(record => {
-            if (!calculatedWeeklyCounts[record.habit_id]) {
-              calculatedWeeklyCounts[record.habit_id] = {};
-            }
-            // Only count if not a "WEEK_OFF" entry
-            if (!record.tracked_values.includes("WEEK_OFF")) {
-              record.tracked_values.forEach(value => {
-                calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
-              });
+            const habit = habitsData?.find(h => h.id === record.habit_id);
+            if (habit?.type === 'tracking') { // Only count for 'tracking' type habits
+              if (!calculatedWeeklyCounts[record.habit_id]) {
+                calculatedWeeklyCounts[record.habit_id] = {};
+              }
+              const values = getTrackedValuesFromRecord(record);
+              // Only count if not a "WEEK_OFF" entry
+              if (!values.includes("WEEK_OFF")) {
+                values.forEach(value => {
+                  calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
+                });
+              }
             }
           });
           setWeeklyTrackingCounts(calculatedWeeklyCounts);
@@ -226,14 +242,18 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
         } else {
           const calculatedMonthlyCounts: { [hId: string]: { [tValue: string]: number } } = {};
           monthlyRecords.forEach(record => {
-            if (!calculatedMonthlyCounts[record.habit_id]) {
-              calculatedMonthlyCounts[record.habit_id] = {};
-            }
-            // Only count if not a "WEEK_OFF" entry
-            if (!record.tracked_values.includes("WEEK_OFF")) {
-              record.tracked_values.forEach(value => {
-                calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
-              });
+            const habit = habitsData?.find(h => h.id === record.habit_id);
+            if (habit?.type === 'tracking') { // Only count for 'tracking' type habits
+              if (!calculatedMonthlyCounts[record.habit_id]) {
+                calculatedMonthlyCounts[record.habit_id] = {};
+              }
+              const values = getTrackedValuesFromRecord(record);
+              // Only count if not a "WEEK_OFF" entry
+              if (!values.includes("WEEK_OFF")) {
+                values.forEach(value => {
+                  calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
+                });
+              }
             }
           });
           setMonthlyTrackingCounts(calculatedMonthlyCounts);
@@ -263,6 +283,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
       ...prev,
       [habitId]: {
         trackedValues: trackedValuesForDay,
+        textValue: undefined, // Ensure textValue is undefined for 'tracking' type
         isOutOfControlMiss: isOutOfControlMiss,
       },
     }));
@@ -296,6 +317,22 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
 
     // IMPORTANT: This local handler DOES NOT interact with Supabase directly.
     // Supabase updates will happen in the parent component's onSave.
+  };
+
+  // New local handler for DailyFreeTextHabitCard to update modal's internal tracking state
+  const handleUpdateFreeTextTrackingLocally = async (
+    habitId: string,
+    date: string,
+    textValue: string,
+  ) => {
+    setModalHabitTracking(prev => ({
+      ...prev,
+      [habitId]: {
+        trackedValues: undefined, // Ensure trackedValues is undefined for 'text_field' type
+        textValue: textValue.trim() === '' ? undefined : textValue.trim(),
+        isOutOfControlMiss: false,
+      },
+    }));
   };
 
   const handleSave = async (overwrite: boolean = false) => {
@@ -453,33 +490,50 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {habits.map((habit) => {
-                  const habitTrackingForModal = modalHabitTracking[habit.id];
-                  const initialTrackedValue = habitTrackingForModal?.trackedValues?.length > 0
-                    ? habitTrackingForModal.trackedValues[0]
-                    : null;
-                  const initialIsOutOfControlMiss = habitTrackingForModal?.isOutOfControlMiss || false;
-
-                  // Determine if this specific day is part of a "week off"
                   const isWeekOffForThisDay = currentWeekOffRecord?.is_off && eachDayOfInterval({
                     start: startOfWeek(new Date(editedDate), { weekStartsOn: 1 }),
                     end: endOfWeek(new Date(editedDate), { weekStartsOn: 1 })
                   }).some(day => format(day, 'yyyy-MM-dd') === editedDate);
 
-                  return (
-                    <DailyHabitTrackerCard
-                      key={`${habit.id}-${initialEntry.date}`} // Key based on initial entry date to prevent re-render on editedDate change
-                      habit={habit}
-                      entryDate={editedDate} // Pass editedDate as the target date for saving
-                      onUpdateTracking={handleUpdateTrackingLocally} // Use local handler
-                      currentYearlyProgress={yearlyProgress[currentYearForDisplay]?.[habit.id] || 0}
-                      initialTrackedValue={initialTrackedValue}
-                      initialIsOutOfControlMiss={initialIsOutOfControlMiss}
-                      yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
-                      weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
-                      monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
-                      isWeekOffForThisDay={isWeekOffForThisDay || false} // Pass the new prop
-                    />
-                  );
+                  if (habit.type === 'tracking') {
+                    const habitTrackingForModal = modalHabitTracking[habit.id];
+                    const initialTrackedValue = habitTrackingForModal?.trackedValues?.length > 0
+                      ? habitTrackingForModal.trackedValues![0]
+                      : null;
+                    const initialIsOutOfControlMiss = habitTrackingForModal?.isOutOfControlMiss || false;
+
+                    return (
+                      <DailyHabitTrackerCard
+                        key={`${habit.id}-${initialEntry.date}`} // Key based on initial entry date to prevent re-render on editedDate change
+                        habit={habit}
+                        entryDate={editedDate} // Pass editedDate as the target date for saving
+                        onUpdateTracking={handleUpdateTrackingLocally} // Use local handler
+                        currentYearlyProgress={yearlyProgress[currentYearForDisplay]?.[habit.id] || 0}
+                        initialTrackedValue={initialTrackedValue}
+                        initialIsOutOfControlMiss={initialIsOutOfControlMiss}
+                        yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
+                        weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
+                        monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
+                        isWeekOffForThisDay={isWeekOffForThisDay || false}
+                      />
+                    );
+                  } else if (habit.type === 'text_field') {
+                    const habitTrackingForModal = modalHabitTracking[habit.id];
+                    const initialTextValue = habitTrackingForModal?.textValue
+                      ? habitTrackingForModal.textValue!
+                      : null;
+                    return (
+                      <DailyFreeTextHabitCard
+                        key={`${habit.id}-${initialEntry.date}`}
+                        habit={habit}
+                        entryDate={editedDate}
+                        onUpdateTracking={handleUpdateFreeTextTrackingLocally}
+                        initialTextValue={initialTextValue}
+                        isWeekOffForThisDay={isWeekOffForThisDay || false}
+                      />
+                    );
+                  }
+                  return null;
                 })}
               </div>
             )}
