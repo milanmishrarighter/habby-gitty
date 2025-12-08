@@ -218,7 +218,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       const newDailyTracking: { [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } = { [entryDate]: {} };
       trackingData.forEach(record => {
         newDailyTracking[entryDate][record.habit_id] = {
-          trackedValues: record.tracked_values,
+          trackedValues: Array.isArray(record.tracked_values) ? record.tracked_values : [],
           isOutOfControlMiss: record.is_out_of_control_miss,
         };
       });
@@ -321,9 +321,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         if (!calculatedWeeklyCounts[record.habit_id]) {
           calculatedWeeklyCounts[record.habit_id] = {};
         }
+        const values = Array.isArray(record.tracked_values) ? record.tracked_values : [];
         // Only count if not a "WEEK_OFF" entry
-        if (!record.tracked_values.includes("WEEK_OFF")) {
-          record.tracked_values.forEach(value => {
+        if (!values.includes("WEEK_OFF")) {
+          values.forEach(value => {
             calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
           });
         }
@@ -347,9 +348,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         if (!calculatedMonthlyCounts[record.habit_id]) {
           calculatedMonthlyCounts[record.habit_id] = {};
         }
+        const values = Array.isArray(record.tracked_values) ? record.tracked_values : [];
         // Only count if not a "WEEK_OFF" entry
-        if (!record.tracked_values.includes("WEEK_OFF")) {
-          record.tracked_values.forEach(value => {
+        if (!values.includes("WEEK_OFF")) {
+          values.forEach(value => {
             calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
           });
         }
@@ -539,8 +541,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         if (!calculatedWeeklyCounts[record.habit_id]) {
           calculatedWeeklyCounts[record.habit_id] = {};
         }
-        if (!record.tracked_values.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
-          record.tracked_values.forEach(value => {
+        const values = Array.isArray(record.tracked_values) ? record.tracked_values : [];
+        if (!values.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
+          values.forEach(value => {
             calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
           });
         }
@@ -560,8 +563,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         if (!calculatedMonthlyCounts[record.habit_id]) {
           calculatedMonthlyCounts[record.habit_id] = {};
         }
-        if (!record.tracked_values.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
-          record.tracked_values.forEach(value => {
+        const values = Array.isArray(record.tracked_values) ? record.tracked_values : [];
+        if (!values.includes("WEEK_OFF")) { // Exclude "WEEK_OFF" from counts
+          values.forEach(value => {
             calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
           });
         }
