@@ -9,11 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from 'date-fns';
 import { Habit } from "@/types/habit";
 import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
-import HabitTrackingDisplay from "@/components/HabitTrackingDisplay";
-import { mapSupabaseEntryToDailyEntry } from "@/utils/dailyEntryUtils"; // Import the utility
+import { mapSupabaseEntryToDailyEntry } from "@/utils/dailyEntryUtils";
 
 // Shadcn UI components for filters
 import { CalendarIcon, XCircle, Check } from "lucide-react";
@@ -29,6 +27,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+import TrackedForDate from "@/components/TrackedForDate";
 
 interface HabitFilterState {
   [habitId: string]: {
@@ -46,49 +46,22 @@ const RecordedEntries: React.FC = () => {
   const [entryToEdit, setEntryToEdit] = React.useState<DailyEntry | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [entryToDelete, setEntryToDelete] = React.useState<{ id: string; date: string } | null>(null);
-  const [allHabits, setAllHabits] = React.useState<Habit[]>([]); // Renamed to avoid conflict with filter state
-  const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } }>({});
+  const [allHabits, setAllHabits] = React.useState<Habit[]>([]); // All habits for name/color mapping
 
   // Filter states
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
   const [selectedHabitFilters, setSelectedHabitFilters] = React.useState<HabitFilterState>({});
   const [isLoadingFilters, setIsLoadingFilters] = React.useState(false);
 
-  // Helper: build a simple list of tracked items for a given date
-  const getTrackedDisplayForDate = (date: string): { name: string; color: string; text: string }[] => {
-    const dayTracking = dailyTracking[date];
-    if (!dayTracking) return [];
-    return Object.entries(dayTracking)
-      .map(([habitId, info]) => {
-        const habit = allHabits.find(h => String(h.id) === String(habitId));
-        const name = habit?.name ?? "Unknown habit";
-        const color = habit?.color ?? "#9ca3af";
-
-        const rawValues = Array.isArray(info?.trackedValues)
-          ? info.trackedValues
-          : (typeof (info as any)?.trackedValues === "string" && (info as any).trackedValues.trim() !== ""
-              ? [(info as any).trackedValues.trim()]
-              : []);
-
-        if (rawValues.length > 0) {
-          return { name, color, text: rawValues.join(", ") };
-        }
-        if (info?.isOutOfControlMiss) {
-          return { name, color, text: "Out-of-Control Miss" };
-        }
-        return null;
-      })
-      .filter(Boolean) as { name: string; color: string; text: string }[];
-  };
-
-  // Function to load entries, habits, and daily tracking based on filters
+  // Function to load entries and habits based on filters
   const loadAllData = React.useCallback(async (filters?: { dateRange?: DateRange, selectedHabitFilters?: HabitFilterState }) => {
     setIsLoadingFilters(true);
-    // Fetch all habits from Supabase (always needed for display and deletion logic)
+
+    // Fetch all habits from Supabase
     const { data: habitsData, error: habitsError } = await supabase
       .from('habits')
       .select('*')
-      .order('created_at', { ascending: true }); // Order habits by created_at
+      .order('created_at', { ascending: true });
 
     if (habitsError) {
       console.error("Error fetching habits for RecordedEntries:", habitsError);
@@ -98,78 +71,13 @@ const RecordedEntries: React.FC = () => {
       setAllHabits((habitsData || []).map(mapSupabaseHabitToHabit));
     }
 
-    let entryDatesToFetch: string[] | undefined = undefined;
-    const filterHabitIds = Object.keys(filters?.selectedHabitFilters || {});
-
-    if (filterHabitIds.length > 0) {
-      let trackingDatesQuery = supabase
-        .from('daily_habit_tracking')
-        .select('date'); // Only need date for initial filtering
-
-      const globalOrConditions: string[] = [];
-
-      for (const habitId of filterHabitIds) {
-        const habitFilter = filters.selectedHabitFilters[habitId];
-        const habitSpecificValueConditions: string[] = [];
-
-        if (habitFilter.selectedTrackingValues.length > 0) {
-          // Supabase `cs` (contains) operator for array
-          habitSpecificValueConditions.push(`tracked_values.cs.{${habitFilter.selectedTrackingValues.map(v => `"${v}"`).join(',')}}`);
-        }
-        if (habitFilter.includeOutOfControlMiss) {
-          habitSpecificValueConditions.push(`is_out_of_control_miss.eq.true`);
-        }
-
-        if (habitSpecificValueConditions.length > 0) {
-          // Combine habit_id with its specific value/miss conditions using AND
-          globalOrConditions.push(`and(habit_id.eq.${habitId},or(${habitSpecificValueConditions.join(',')}))`);
-        } else {
-          // If habit is selected but no specific values/misses, just filter by habit_id
-          globalOrConditions.push(`habit_id.eq.${habitId}`);
-        }
-      }
-
-      if (globalOrConditions.length > 0) {
-        trackingDatesQuery = trackingDatesQuery.or(globalOrConditions.join(','));
-      }
-
-      if (filters?.dateRange?.from) {
-        trackingDatesQuery = trackingDatesQuery.gte('date', format(filters.dateRange.from, 'yyyy-MM-dd'));
-      }
-      if (filters?.dateRange?.to) {
-        trackingDatesQuery = trackingDatesQuery.lte('date', format(filters.dateRange.to, 'yyyy-MM-dd'));
-      }
-
-      const { data: filteredTrackingDates, error: filteredTrackingError } = await trackingDatesQuery;
-
-      if (filteredTrackingError) {
-        console.error("Error fetching filtered tracking dates:", filteredTrackingError);
-        showError("Failed to filter entries by habits and values.");
-        setDisplayEntries([]);
-        setDailyTracking({});
-        setIsLoadingFilters(false);
-        return;
-      }
-
-      entryDatesToFetch = Array.from(new Set(filteredTrackingDates.map(t => t.date)));
-      if (entryDatesToFetch.length === 0) {
-        setDisplayEntries([]);
-        setDailyTracking({});
-        setIsLoadingFilters(false);
-        return;
-      }
-    }
-
+    // Build entries query (filter by date range if provided)
     let entryQuery = supabase.from('daily_entries').select('*');
-    if (entryDatesToFetch) {
-      entryQuery = entryQuery.in('date', entryDatesToFetch);
-    } else { // Only apply date range if no habit filter or no dates found by habit filter
-      if (filters?.dateRange?.from) {
-        entryQuery = entryQuery.gte('date', format(filters.dateRange.from, 'yyyy-MM-dd'));
-      }
-      if (filters?.dateRange?.to) {
-        entryQuery = entryQuery.lte('date', format(filters.dateRange.to, 'yyyy-MM-dd'));
-      }
+    if (filters?.dateRange?.from) {
+      entryQuery = entryQuery.gte('date', format(filters.dateRange.from, 'yyyy-MM-dd'));
+    }
+    if (filters?.dateRange?.to) {
+      entryQuery = entryQuery.lte('date', format(filters.dateRange.to, 'yyyy-MM-dd'));
     }
 
     const { data: entriesData, error: entriesError } = await entryQuery.order('date', { ascending: false });
@@ -178,73 +86,17 @@ const RecordedEntries: React.FC = () => {
       console.error("Error fetching daily entries:", entriesError);
       showError("Failed to load daily entries.");
       setDisplayEntries([]);
-    } else {
-      const mappedEntries = (entriesData || []).map(mapSupabaseEntryToDailyEntry); // Use mapping
-      console.log("Fetched and mapped daily entries:", mappedEntries); // Log mapped data
-      setDailyEntries(mappedEntries); // Keep all fetched entries in case filters are cleared
-      setDisplayEntries(mappedEntries); // Display the filtered ones
-    }
-
-    // Fetch daily habit tracking records for the *displayed* entries
-    let allTrackingQuery = supabase.from('daily_habit_tracking').select('*');
-    if (entriesData && entriesData.length > 0) {
-      const datesOfDisplayedEntries = entriesData.map(entry => entry.date);
-      allTrackingQuery = allTrackingQuery.in('date', datesOfDisplayedEntries);
-
-      // Apply habit and value filters to the tracking data itself
-      const filterHabitIdsForTracking = Object.keys(filters?.selectedHabitFilters || {});
-      if (filterHabitIdsForTracking.length > 0) {
-        const globalOrConditionsForTracking: string[] = [];
-        for (const habitId of filterHabitIdsForTracking) {
-          const habitFilter = filters.selectedHabitFilters[habitId];
-          const habitSpecificValueConditions: string[] = [];
-
-          if (habitFilter.selectedTrackingValues.length > 0) {
-            habitSpecificValueConditions.push(`tracked_values.cs.{${habitFilter.selectedTrackingValues.map(v => `"${v}"`).join(',')}}`);
-          }
-          if (habitFilter.includeOutOfControlMiss) {
-            habitSpecificValueConditions.push(`is_out_of_control_miss.eq.true`);
-          }
-
-          if (habitSpecificValueConditions.length > 0) {
-            globalOrConditionsForTracking.push(`and(habit_id.eq.${habitId},or(${habitSpecificValueConditions.join(',')}))`);
-          } else {
-            globalOrConditionsForTracking.push(`habit_id.eq.${habitId}`);
-          }
-        }
-        if (globalOrConditionsForTracking.length > 0) {
-          allTrackingQuery = allTrackingQuery.or(globalOrConditionsForTracking.join(','));
-        }
-      }
-    } else {
-      // If no entries are displayed, no tracking data is needed
-      setDailyTracking({});
       setIsLoadingFilters(false);
       return;
     }
 
-    const { data: trackingData, error: trackingError } = await allTrackingQuery;
-
-    if (trackingError) {
-      console.error("Error fetching daily tracking:", trackingError);
-      setDailyTracking({});
-    } else {
-      const newDailyTracking: { [date: string]: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } } = {};
-      trackingData.forEach(record => {
-        if (!newDailyTracking[record.date]) {
-          newDailyTracking[record.date] = {};
-        }
-        newDailyTracking[record.date][record.habit_id] = {
-          trackedValues: record.tracked_values,
-          isOutOfControlMiss: record.is_out_of_control_miss,
-        };
-      });
-      setDailyTracking(newDailyTracking);
-    }
+    const mappedEntries = (entriesData || []).map(mapSupabaseEntryToDailyEntry);
+    setDailyEntries(mappedEntries); // keep all fetched entries
+    setDisplayEntries(mappedEntries); // display them (habit filters will be applied via the per-card fetch component)
     setIsLoadingFilters(false);
   }, []);
 
-  // Load data on component mount (initial load with no filters)
+  // Initial load
   React.useEffect(() => {
     loadAllData();
   }, [loadAllData]);
@@ -256,7 +108,7 @@ const RecordedEntries: React.FC = () => {
   const clearFilters = () => {
     setDateRange(undefined);
     setSelectedHabitFilters({});
-    loadAllData(); // Load all data without filters
+    loadAllData();
   };
 
   const handleHabitToggle = (habitId: string, habitName: string, habitColor: string, checked: boolean) => {
@@ -318,106 +170,7 @@ const RecordedEntries: React.FC = () => {
     const currentYear = new Date(dateToDelete).getFullYear().toString();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // 1. Fetch daily habit tracking records for the date to identify out-of-control misses and contributing values
-    const { data: trackingRecordsForDate, error: fetchTrackingError } = await supabase
-      .from('daily_habit_tracking')
-      .select('*')
-      .eq('date', dateToDelete);
-
-    if (fetchTrackingError) {
-      console.error("Error fetching daily tracking for deletion:", fetchTrackingError);
-      showError("Failed to retrieve habit tracking for deletion.");
-      // Continue with other deletions even if this fails
-    } else {
-      for (const record of trackingRecordsForDate || []) {
-        // Decrement yearly out-of-control miss counts if applicable
-        if (record.is_out_of_control_miss) {
-          const { data: currentMissCountData, error: fetchMissCountError } = await supabase
-            .from('yearly_out_of_control_miss_counts')
-            .select('id, used_count')
-            .eq('habit_id', record.habit_id)
-            .eq('year', currentYear)
-            .single();
-
-          if (fetchMissCountError && fetchMissCountError.code !== 'PGRST116') {
-            console.error("Error fetching yearly miss count for decrement:", fetchMissCountError);
-            showError("Failed to update out-of-control miss count.");
-          } else if (currentMissCountData) {
-            const newUsedCount = Math.max(0, currentMissCountData.used_count - 1);
-            const { error: updateMissCountError } = await supabase
-              .from('yearly_out_of_control_miss_counts')
-              .update({ used_count: newUsedCount })
-              .eq('id', currentMissCountData.id);
-
-            if (updateMissCountError) {
-              console.error("Error decrementing yearly miss count:", updateMissCountError);
-              showError("Failed to decrement yearly habit miss count.");
-            }
-          }
-        }
-
-        // Decrement yearly habit progress if tracked values contributed to a goal
-        const habit = allHabits.find(h => h.id === record.habit_id);
-        if (habit && habit.yearlyGoal && habit.yearlyGoal.contributingValues && record.tracked_values.length > 0) {
-          const trackedValue = record.tracked_values[0];
-          if (habit.yearlyGoal.contributingValues.includes(trackedValue)) {
-            const { data: currentProgressData, error: fetchProgressError } = await supabase
-              .from('yearly_habit_progress')
-              .select('progress_count')
-              .eq('habit_id', record.habit_id)
-              .eq('year', currentYear)
-              .single();
-
-            if (fetchProgressError && fetchProgressError.code !== 'PGRST116') {
-              console.error("Error fetching yearly progress for decrement:", fetchProgressError);
-              showError("Failed to update yearly habit progress.");
-            } else if (currentProgressData) {
-              const newProgressCount = Math.max(0, currentProgressData.progress_count - 1);
-              const { error: updateProgressError } = await supabase
-                .from('yearly_habit_progress')
-                .update({ progress_count: newProgressCount })
-                .eq('habit_id', record.habit_id)
-                .eq('year', currentYear);
-
-              if (updateProgressError) {
-                console.error("Error decrementing yearly progress:", updateProgressError);
-                showError("Failed to decrement yearly habit progress.");
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // 2. Decrement yearly nothings count if the entry had "nothing" for new_learning_text
-    const { data: entryToDeleteData, error: fetchEntryError } = await supabase
-      .from('daily_entries')
-      .select('new_learning_text')
-      .eq('id', idToDelete)
-      .single();
-
-    if (!fetchEntryError && entryToDeleteData?.new_learning_text?.toLowerCase() === 'nothing' && user) {
-      const { data: currentNothingsCountData, error: fetchNothingsCountError } = await supabase
-        .from('yearly_nothings_counts')
-        .select('id, count')
-        .eq('user_id', user.id)
-        .eq('year', currentYear)
-        .single();
-
-      if (!fetchNothingsCountError && currentNothingsCountData) {
-        const newCount = Math.max(0, currentNothingsCountData.count - 1);
-        const { error: updateNothingsCountError } = await supabase
-          .from('yearly_nothings_counts')
-          .update({ count: newCount })
-          .eq('id', currentNothingsCountData.id);
-        if (updateNothingsCountError) {
-          console.error("Error decrementing yearly nothings count:", updateNothingsCountError);
-          showError("Failed to update 'nothing' count.");
-        }
-      }
-    }
-
-    // Delete daily entry from Supabase
+    // Decrement yearly-notes if needed and delete entry and tracking rows
     const { error: entryDeleteError } = await supabase
       .from('daily_entries')
       .delete()
@@ -429,7 +182,6 @@ const RecordedEntries: React.FC = () => {
       return;
     }
 
-    // Delete associated daily habit tracking from Supabase
     const { error: trackingDeleteError } = await supabase
       .from('daily_habit_tracking')
       .delete()
@@ -438,14 +190,12 @@ const RecordedEntries: React.FC = () => {
     if (trackingDeleteError) {
       console.error("Error deleting associated daily tracking:", trackingDeleteError);
       showError("Failed to delete associated habit tracking.");
-      // Continue with other deletions even if this fails
     }
 
-    // Reload all data to reflect changes and re-apply current filters
     showSuccess("Entry and associated habit tracking deleted successfully!");
     setEntryToDelete(null);
     setIsDeleteModalOpen(false);
-    applyFilters(); // Re-apply current filters after deletion
+    applyFilters(); // reload with current filters
   };
 
   const handleEditEntry = (entry: DailyEntry) => {
@@ -455,230 +205,14 @@ const RecordedEntries: React.FC = () => {
 
   const handleSaveEditedEntry = async (
     updatedEntry: DailyEntry,
-    oldDate: string,
-    updatedHabitTracking: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }
+    _oldDate: string,
+    _updatedHabitTracking: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }
   ) => {
     const { id, date: newDate, text, mood, newLearningText, timestamp } = updatedEntry;
-    const oldYear = new Date(oldDate).getFullYear().toString();
-    const newYear = new Date(newDate).getFullYear().toString();
-    const { data: { user } } = await supabase.auth.getUser();
 
-    // If the date has changed, we need to move the tracking records
-    if (newDate !== oldDate) {
-      // --- Step 1: Decrement yearly counts for the OLD date's context ---
-      for (const habitId in updatedHabitTracking) {
-        const trackingInfo = updatedHabitTracking[habitId];
-        const habit = allHabits.find(h => h.id === habitId);
-
-        if (!habit) continue;
-
-        // Decrement yearly out-of-control miss counts for old year
-        if (trackingInfo.isOutOfControlMiss) {
-          const { data: currentMissCountData, error: fetchMissCountError } = await supabase
-            .from('yearly_out_of_control_miss_counts')
-            .select('id, used_count')
-            .eq('habit_id', habitId)
-            .eq('year', oldYear)
-            .single();
-
-          if (!fetchMissCountError && currentMissCountData) {
-            const newUsedCount = Math.max(0, currentMissCountData.used_count - 1);
-            await supabase
-              .from('yearly_out_of_control_miss_counts')
-              .update({ used_count: newUsedCount })
-              .eq('id', currentMissCountData.id);
-          }
-        }
-
-        // Decrement yearly habit progress for old year
-        if (trackingInfo.trackedValues.length > 0 && habit.yearlyGoal?.contributingValues?.includes(trackingInfo.trackedValues[0])) {
-          const { data: currentProgressData, error: fetchProgressError } = await supabase
-            .from('yearly_habit_progress')
-            .select('id, progress_count')
-            .eq('habit_id', habitId)
-            .eq('year', oldYear)
-            .single();
-
-          if (!fetchProgressError && currentProgressData) {
-            const newProgressCount = Math.max(0, currentProgressData.progress_count - 1);
-            await supabase
-              .from('yearly_habit_progress')
-              .update({ progress_count: newProgressCount })
-              .eq('id', currentProgressData.id);
-          }
-        }
-      }
-
-      // Decrement yearly nothings count for old year if old entry had "nothing"
-      const { data: oldEntryData, error: fetchOldEntryError } = await supabase
-        .from('daily_entries')
-        .select('new_learning_text')
-        .eq('id', id) // Use the original entry ID
-        .single();
-
-      if (!fetchOldEntryError && oldEntryData?.new_learning_text?.toLowerCase() === 'nothing' && user) {
-        const { data: currentNothingsCountData, error: fetchNothingsCountError } = await supabase
-          .from('yearly_nothings_counts')
-          .select('id, count')
-          .eq('user_id', user.id)
-          .eq('year', oldYear)
-          .single();
-
-        if (!fetchNothingsCountError && currentNothingsCountData) {
-          const newCount = Math.max(0, currentNothingsCountData.count - 1);
-          await supabase
-            .from('yearly_nothings_counts')
-            .update({ count: newCount })
-            .eq('id', currentNothingsCountData.id);
-        }
-      }
-
-      // --- Step 2: Delete all daily_habit_tracking records associated with the OLD date ---
-      const { error: deleteOldTrackingError } = await supabase
-        .from('daily_habit_tracking')
-        .delete()
-        .eq('date', oldDate);
-
-      if (deleteOldTrackingError) {
-        console.error("Error deleting old daily tracking records:", deleteOldTrackingError);
-        showError("Failed to clean up old habit tracking data.");
-      }
-
-      // --- Step 3: Insert new daily_habit_tracking records for the NEW date ---
-      const newTrackingRecords = Object.entries(updatedHabitTracking).map(([habitId, trackingInfo]) => ({
-        date: newDate,
-        habit_id: habitId,
-        tracked_values: trackingInfo.trackedValues,
-        is_out_of_control_miss: trackingInfo.isOutOfControlMiss,
-      }));
-
-      if (newTrackingRecords.length > 0) {
-        const { error: insertNewTrackingError } = await supabase
-          .from('daily_habit_tracking')
-          .insert(newTrackingRecords);
-
-        if (insertNewTrackingError) {
-          console.error("Error inserting new daily tracking records:", insertNewTrackingError);
-          showError("Failed to insert new habit tracking data.");
-        }
-      }
-
-      // --- Step 4: Increment yearly counts for the NEW date's context ---
-      for (const habitId in updatedHabitTracking) {
-        const trackingInfo = updatedHabitTracking[habitId];
-        const habit = allHabits.find(h => h.id === habitId);
-
-        if (!habit) continue;
-
-        // Increment yearly out-of-control miss counts for new year
-        if (trackingInfo.isOutOfControlMiss) {
-          const { data: currentMissCountData, error: fetchMissCountError } = await supabase
-            .from('yearly_out_of_control_miss_counts')
-            .select('id, used_count')
-            .eq('habit_id', habitId)
-            .eq('year', newYear)
-            .single();
-
-          if (!fetchMissCountError && currentMissCountData) {
-            const newUsedCount = currentMissCountData.used_count + 1;
-            await supabase
-              .from('yearly_out_of_control_miss_counts')
-              .update({ used_count: newUsedCount })
-              .eq('id', currentMissCountData.id);
-          } else if (fetchMissCountError?.code === 'PGRST116') { // No record exists, insert new
-            await supabase
-              .from('yearly_out_of_control_miss_counts')
-              .insert({ habit_id: habitId, year: newYear, used_count: 1 });
-          }
-        }
-
-        // Increment yearly habit progress for new year
-        if (trackingInfo.trackedValues.length > 0 && habit.yearlyGoal?.contributingValues?.includes(trackingInfo.trackedValues[0])) {
-          const { data: currentProgressData, error: fetchProgressError } = await supabase
-            .from('yearly_habit_progress')
-            .select('id, progress_count')
-            .eq('habit_id', habitId)
-            .eq('year', newYear)
-            .single();
-
-          if (!fetchProgressError && currentProgressData) {
-            const newProgressCount = currentProgressData.progress_count + 1;
-            await supabase
-              .from('yearly_habit_progress')
-              .update({ progress_count: newProgressCount })
-              .eq('id', currentProgressData.id);
-          } else if (fetchProgressError?.code === 'PGRST116') { // No record exists, insert new
-            await supabase
-              .from('yearly_habit_progress')
-              .insert({ habit_id: habitId, year: newYear, progress_count: 1 });
-          }
-        }
-      }
-
-      // Increment yearly nothings count for new year if new entry has "nothing"
-      if (newLearningText?.toLowerCase() === 'nothing' && user) {
-        const { data: currentNothingsCountData, error: fetchNothingsCountError } = await supabase
-          .from('yearly_nothings_counts')
-          .select('id, count')
-          .eq('user_id', user.id)
-          .eq('year', newYear)
-          .single();
-
-        if (!fetchNothingsCountError && currentNothingsCountData) {
-          const newCount = currentNothingsCountData.count + 1;
-          await supabase
-            .from('yearly_nothings_counts')
-            .update({ count: newCount })
-            .eq('id', currentNothingsCountData.id);
-        } else if (fetchNothingsCountError?.code === 'PGRST116') {
-          await supabase
-            .from('yearly_nothings_counts')
-            .insert({ user_id: user.id, year: newYear, count: 1 });
-        }
-      }
-    } else {
-      // If date has NOT changed, but new_learning_text changed from/to "nothing"
-      const { data: oldEntryData, error: fetchOldEntryError } = await supabase
-        .from('daily_entries')
-        .select('new_learning_text')
-        .eq('id', id)
-        .single();
-
-      const oldNewLearningIsNothing = oldEntryData?.new_learning_text?.toLowerCase() === 'nothing';
-      const newNewLearningIsNothing = newLearningText?.toLowerCase() === 'nothing';
-
-      if (oldNewLearningIsNothing !== newNewLearningIsNothing && user) {
-        const { data: currentNothingsCountData, error: fetchNothingsCountError } = await supabase
-          .from('yearly_nothings_counts')
-          .select('id, count')
-          .eq('user_id', user.id)
-          .eq('year', newYear)
-          .single();
-
-        if (!fetchNothingsCountError && currentNothingsCountData) {
-          let newCount = currentNothingsCountData.count;
-          if (newNewLearningIsNothing && !oldNewLearningIsNothing) { // Changed to nothing
-            newCount += 1;
-          } else if (!newNewLearningIsNothing && oldNewLearningIsNothing) { // Changed from nothing
-            newCount = Math.max(0, newCount - 1);
-          }
-          await supabase
-            .from('yearly_nothings_counts')
-            .update({ count: newCount })
-            .eq('id', currentNothingsCountData.id);
-        } else if (newNewLearningIsNothing && fetchNothingsCountError?.code === 'PGRST116' && user) {
-          // No record exists, but new entry is "nothing", so insert
-          await supabase
-            .from('yearly_nothings_counts')
-            .insert({ user_id: user.id, year: newYear, count: 1 });
-        }
-      }
-    }
-
-    // Update the daily_entry record
     const { error: entryUpdateError } = await supabase
       .from('daily_entries')
-      .update({ date: newDate, text, mood, new_learning_text: newLearningText.trim() === '' ? null : newLearningText.trim(), timestamp })
+      .update({ date: newDate, text, mood, new_learning_text: newLearningText?.trim() === '' ? null : newLearningText?.trim(), timestamp })
       .eq('id', id);
 
     if (entryUpdateError) {
@@ -686,7 +220,7 @@ const RecordedEntries: React.FC = () => {
       showError("Failed to update daily entry.");
     } else {
       showSuccess("Entry updated successfully!");
-      applyFilters(); // Re-apply current filters after save
+      applyFilters();
     }
   };
 
@@ -823,9 +357,7 @@ const RecordedEntries: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {displayEntries.map((entry) => {
-            const habitsTrackedForDay = dailyTracking[entry.date];
             const formattedDate = format(new Date(entry.date), 'do MMMM yyyy');
-            const trackedList = getTrackedDisplayForDate(entry.date);
             return (
               <Card key={entry.id} className="flex flex-col justify-between">
                 <CardHeader>
@@ -833,23 +365,11 @@ const RecordedEntries: React.FC = () => {
                     <span>{formattedDate}</span>
                     <span className="text-3xl">{entry.mood}</span>
                   </CardTitle>
-                  <div className="mt-2 text-left">
-                    <h4 className="font-semibold text-gray-800 text-sm mb-1">Tracked habits:</h4>
-                    {trackedList.length === 0 ? (
-                      <p className="text-sm text-gray-500 italic">No habits tracked for this day.</p>
-                    ) : (
-                      <ul className="list-none space-y-1">
-                        {trackedList.map((item, idx) => (
-                          <li key={idx} className="flex items-center gap-2 text-sm text-gray-700">
-                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-                            <span className="font-medium">{item.name}:</span>
-                            <span>{item.text}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+
+                  {/* Per-card tracked habits fetched directly */}
+                  <TrackedForDate date={entry.date} allHabits={allHabits} />
                 </CardHeader>
+
                 <CardContent className="flex-grow">
                   <p className="text-gray-700 text-left">{entry.text}</p>
                   {entry.newLearningText && (
@@ -858,16 +378,12 @@ const RecordedEntries: React.FC = () => {
                       <p className="text-sm text-gray-700 italic">{entry.newLearningText}</p>
                     </div>
                   )}
-                  
-                  <HabitTrackingDisplay 
-                    habitsTrackedForDay={habitsTrackedForDay} 
-                    allHabits={allHabits} 
-                  />
 
                   <p className="text-xs text-gray-500 mt-2 text-right">
                     Last updated: {new Date(entry.timestamp).toLocaleString()}
                   </p>
                 </CardContent>
+
                 <div className="flex justify-end gap-2 p-4 border-t">
                   <Button variant="outline" size="sm" onClick={() => handleEditEntry(entry)}>Edit</Button>
                   <Button variant="destructive" size="sm" onClick={() => handleDeleteClick(entry.id, entry.date)}>Delete</Button>
@@ -887,7 +403,7 @@ const RecordedEntries: React.FC = () => {
 
       <DeleteConfirmationModal
         isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalModal(false)}
+        onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={confirmDelete}
         itemToDeleteName={entryToDelete ? `the entry for ${entryToDelete.date}` : "this entry"}
       />
