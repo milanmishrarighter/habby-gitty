@@ -5,4 +5,6 @@ export interface DailyEntry {
   mood: string;
   newLearningText?: string; // New field: What's something new you learned today
   timestamp: string;
+  // New field: Misc. text tracking
+  miscTextTracking?: string;
 }

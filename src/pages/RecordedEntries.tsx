@@ -378,6 +378,12 @@ const RecordedEntries: React.FC = () => {
                       <p className="text-sm text-gray-700 italic">{entry.newLearningText}</p>
                     </div>
                   )}
+                  {entry.miscTextTracking && (
+                    <div className="mt-3 pt-3 border-t border-gray-100 text-left">
+                      <h4 className="font-semibold text-gray-800 text-sm mb-1">Misc. text tracking:</h4>
+                      <p className="text-sm text-gray-700 italic">{entry.miscTextTracking}</p>
+                    </div>
+                  )}
 
                   <p className="text-xs text-gray-500 mt-2 text-right">
                     Last updated: {new Date(entry.timestamp).toLocaleString()}

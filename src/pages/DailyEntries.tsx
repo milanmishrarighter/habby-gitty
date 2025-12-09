@@ -34,6 +34,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [journalText, setJournalText] = React.useState("");
   const [moodEmoji, setMoodEmoji] = React.useState(""); // Changed initial state to empty string
   const [newLearningText, setNewLearningText] = React.useState(""); // New state for new learning text
+  const [miscTextTracking, setMiscTextTracking] = React.useState(""); // New state for misc. text tracking
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<{ [date: string]: { trackedValues: string[], isOutOfControlMiss: boolean } }>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
@@ -161,6 +162,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setJournalText("");
       setMoodEmoji(""); // Reset new learning text
       setNewLearningText(""); // Reset new learning text
+      setMiscTextTracking(""); // Reset misc text tracking
       setCurrentEntryId(null);
       setDailyTracking({});
       setYearlyProgress({});
@@ -191,16 +193,19 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setJournalText("");
       setMoodEmoji(""); // Reset new learning text
       setNewLearningText(""); // Reset new learning text
+      setMiscTextTracking(""); // Reset misc text tracking
       setCurrentEntryId(null);
     } else if (entryData) {
       setJournalText(entryData.text);
       setMoodEmoji(entryData.mood);
       setNewLearningText(entryData.newLearningText || ""); // Set new learning text
+      setMiscTextTracking(entryData.misc_text_tracking || ""); // Set misc text tracking from backend
       setCurrentEntryId(entryData.id);
     } else {
       setJournalText("");
       setMoodEmoji(""); // Reset new learning text
       setNewLearningText(""); // Reset new learning text
+      setMiscTextTracking(""); // Reset misc text tracking
       setCurrentEntryId(null);
     }
 
@@ -384,6 +389,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       text: journalText.trim(),
       mood: moodEmoji,
       new_learning_text: newLearningText.trim() === '' ? null : newLearningText.trim(), // Save as null if empty
+      misc_text_tracking: miscTextTracking.trim() === '' ? null : miscTextTracking.trim(), // Save as null if empty
       timestamp: new Date().toISOString(),
     };
 
@@ -868,6 +874,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             <span className="ml-2 text-xs text-gray-500">({remainingNothings} / {yearlyNothingsAllowed} remaining)</span>
           )}
         </Button>
+      </div>
+      {/* Misc. Text Tracking Field */}
+      <div className="flex flex-col items-center justify-center mb-6 w-full">
+        <label htmlFor="misc-text-tracking" className="block text-sm font-medium text-gray-700 mb-2">Misc. text tracking</label>
+        <textarea
+          id="misc-text-tracking"
+          rows={4}
+          className="mt-1 p-4 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full resize-y"
+          placeholder="Enter any additional notes..."
+          value={miscTextTracking}
+          onChange={(e) => setMiscTextTracking(e.target.value)}
+        ></textarea>
       </div>
       {/* Mood Emoji Picker */}
       <div className="flex flex-col items-center justify-center mb-6">
