@@ -24,17 +24,17 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
 
     return Object.entries(habitsTrackedForDay)
       .map(([habitId, trackingInfo]) => {
-        const habit = safeAllHabits.find(h => String(h.id) === String(habitId));
+        const habit = safeAllHabits.find((h) => String(h.id) === String(habitId));
         if (!habit) return null;
         if (!trackingInfo) return null;
 
-        // Safely resolve values: prefer trackedValues array, else fall back to textValue if present
-        const values =
-          Array.isArray((trackingInfo as any).trackedValues)
-            ? (trackingInfo as any).trackedValues
-            : ((trackingInfo as any).textValue
-                ? [String((trackingInfo as any).textValue)]
-                : []);
+        const trackedValuesArray = Array.isArray((trackingInfo as any).trackedValues)
+          ? (trackingInfo as any).trackedValues
+          : [];
+        const textValue = (trackingInfo as any).textValue;
+        const values = trackedValuesArray.length > 0
+          ? trackedValuesArray
+          : (typeof textValue === "string" && textValue.trim() !== "" ? [textValue.trim()] : []);
 
         if (values.length > 0) {
           return (
@@ -55,7 +55,7 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
         }
         return null;
       })
-      .filter(Boolean); // Remove any null entries
+      .filter(Boolean);
   }, [habitsTrackedForDay, safeAllHabits]);
 
   if (!habitsTrackedForDay || trackedHabitsList.length === 0) {
