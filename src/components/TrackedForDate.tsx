@@ -3,6 +3,13 @@
 import React from "react";
 import { supabase } from "@/lib/supabase";
 import { Habit } from "@/types/habit";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
+import { ChevronsUpDown } from "lucide-react";
 
 interface TrackedForDateProps {
   date: string;
@@ -18,6 +25,7 @@ type TrackedItem = {
 const TrackedForDate: React.FC<TrackedForDateProps> = ({ date, allHabits }) => {
   const [items, setItems] = React.useState<TrackedItem[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [isOpen, setIsOpen] = React.useState(false);
 
   React.useEffect(() => {
     let mounted = true;
@@ -81,24 +89,37 @@ const TrackedForDate: React.FC<TrackedForDateProps> = ({ date, allHabits }) => {
   }, [date, allHabits]);
 
   return (
-    <div className="mt-2 text-left">
-      <h4 className="font-semibold text-gray-800 text-sm mb-1">Tracked habits:</h4>
-      {loading ? (
-        <p className="text-sm text-gray-500 italic">Loading tracked habits…</p>
-      ) : items.length === 0 ? (
-        <p className="text-sm text-gray-500 italic">No habits tracked for this day.</p>
-      ) : (
-        <ul className="list-none space-y-1">
-          {items.map((item, idx) => (
-            <li key={idx} className="flex items-center gap-2 text-sm text-gray-700">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-              <span className="font-medium">{item.name}:</span>
-              <span>{item.text}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="mt-2 text-left">
+      <div className="flex items-center justify-between">
+        <h4 className="font-semibold text-gray-800 text-sm">
+          Tracked habits{items.length ? ` (${items.length})` : ""}
+        </h4>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="w-9 p-0">
+            <ChevronsUpDown className="h-4 w-4" />
+            <span className="sr-only">Toggle tracked habits</span>
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+
+      <CollapsibleContent className="space-y-1 mt-2">
+        {loading ? (
+          <p className="text-sm text-gray-500 italic">Loading tracked habits…</p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-gray-500 italic">No habits tracked for this day.</p>
+        ) : (
+          <ul className="list-none space-y-1">
+            {items.map((item, idx) => (
+              <li key={idx} className="flex items-center gap-2 text-sm text-gray-700">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
+                <span className="font-medium">{item.name}:</span>
+                <span>{item.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
   );
 };
 
