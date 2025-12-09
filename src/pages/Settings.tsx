@@ -15,6 +15,7 @@ const Settings: React.FC = () => {
   const [settingsId, setSettingsId] = React.useState<string | null>(null);
   const [allSettingsData, setAllSettingsData] = React.useState<Record<string, any>>({}); // To hold all settings from JSONB
   const [isLoading, setIsLoading] = React.useState(true);
+  const [appPassword, setAppPassword] = React.useState<string>("password"); // App password state
 
   React.useEffect(() => {
     const fetchSettings = async () => {
@@ -33,6 +34,7 @@ const Settings: React.FC = () => {
         setAllSettingsData(data.settings_data || {});
         setYearlyWeekOffsAllowed(data.settings_data?.yearly_week_offs_allowed || 0);
         setYearlyNothingsAllowed(data.settings_data?.yearly_nothings_allowed || 0); // Set new field
+        setAppPassword(data.settings_data?.app_password ? String(data.settings_data.app_password) : "password"); // Load app password
       }
       setIsLoading(false);
     };
@@ -55,6 +57,7 @@ const Settings: React.FC = () => {
       ...allSettingsData, // Keep existing settings
       yearly_week_offs_allowed: yearlyWeekOffsAllowed,
       yearly_nothings_allowed: yearlyNothingsAllowed, // Save new field
+      app_password: appPassword, // Save app password
     };
 
     let error = null;
@@ -131,6 +134,23 @@ const Settings: React.FC = () => {
             />
             <p className="text-xs text-gray-500 mt-1">
               Number of times you can record "nothing" for "What's something new you learned today" per year.
+            </p>
+          </div>
+          <div className="mb-4">
+            <Label htmlFor="app-password-setting" className="block text-sm font-medium text-gray-700 mb-1">
+              App Password
+            </Label>
+            <Input
+              type="password"
+              id="app-password-setting"
+              placeholder="Set a password (default is 'password')"
+              value={appPassword}
+              onChange={(e) => setAppPassword(e.target.value)}
+              className="w-full"
+              disabled={isLoading}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              This password is required to unlock the app after login.
             </p>
           </div>
           <Button onClick={handleSaveSettings} disabled={isLoading}>

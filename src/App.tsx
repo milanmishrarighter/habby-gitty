@@ -14,11 +14,13 @@ import AuthForm from "@/components/AuthForm"; // Import AuthForm
 import UserMenu from "@/components/UserMenu"; // Import UserMenu
 import { supabase } from "@/lib/supabase"; // Import supabase client
 import { Session } from "@supabase/supabase-js"; // Import Session type
+import PasswordGate from "@/components/PasswordGate"; // Import PasswordGate
 
 const App = () => {
   const [activeTab, setActiveTab] = React.useState("daily");
   const [session, setSession] = React.useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = React.useState(true);
+  const [isUnlocked, setIsUnlocked] = React.useState(false);
 
   React.useEffect(() => {
     const getSession = async () => {
@@ -53,6 +55,16 @@ const App = () => {
       <>
         <Sonner />
         <AuthForm />
+      </>
+    );
+  }
+
+  // Show the password gate until unlocked
+  if (!isUnlocked) {
+    return (
+      <>
+        <Sonner />
+        <PasswordGate onUnlock={() => setIsUnlocked(true)} />
       </>
     );
   }
