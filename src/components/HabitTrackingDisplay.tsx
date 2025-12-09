@@ -17,24 +17,34 @@ interface HabitTrackingDisplayProps {
 
 const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrackedForDay, allHabits }) => {
   const [isOpen, setIsOpen] = React.useState(false);
+  const safeAllHabits = Array.isArray(allHabits) ? allHabits : [];
 
   const trackedHabitsList = React.useMemo(() => {
     if (!habitsTrackedForDay) return [];
 
     return Object.entries(habitsTrackedForDay)
       .map(([habitId, trackingInfo]) => {
-        const habit = allHabits.find(h => h.id === habitId);
+        const habit = safeAllHabits.find(h => String(h.id) === String(habitId));
         if (!habit) return null;
+        if (!trackingInfo) return null;
 
-        if (trackingInfo.trackedValues.length > 0) {
+        // Safely resolve values: prefer trackedValues array, else fall back to textValue if present
+        const values =
+          Array.isArray((trackingInfo as any).trackedValues)
+            ? (trackingInfo as any).trackedValues
+            : ((trackingInfo as any).textValue
+                ? [String((trackingInfo as any).textValue)]
+                : []);
+
+        if (values.length > 0) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
               <span className="font-medium">{habit.name}:</span>
-              <span>{trackingInfo.trackedValues[0]}</span>
+              <span>{values[0]}</span>
             </li>
           );
-        } else if (trackingInfo.isOutOfControlMiss) {
+        } else if ((trackingInfo as any).isOutOfControlMiss) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700 italic">
               <div className="w-3 h-3 rounded-full bg-gray-400"></div>
@@ -46,7 +56,7 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
         return null;
       })
       .filter(Boolean); // Remove any null entries
-  }, [habitsTrackedForDay, allHabits]);
+  }, [habitsTrackedForDay, safeAllHabits]);
 
   if (!habitsTrackedForDay || trackedHabitsList.length === 0) {
     return <p className="text-sm text-gray-500 italic mt-4 pt-2 border-t border-gray-100 text-left">No habits tracked for this day.</p>;
