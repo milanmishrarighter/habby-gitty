@@ -22,7 +22,7 @@ interface HabitTrackingDisplayProps {
 }
 
 const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrackedForDay, allHabits }) => {
-  const [isOpen, setIsOpen] = React.useState(false);
+  const [isOpen, setIsOpen] = React.useState(true);
 
   const trackedHabitsList = React.useMemo(() => {
     if (!habitsTrackedForDay) return [];
@@ -56,7 +56,7 @@ const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrack
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
               <span className="font-medium">{name}:</span>
-              <span>{trackedValuesArray[0]}</span>
+              <span>{trackedValuesArray.join(", ")}</span>
             </li>
           );
         } else if (trackingInfo.isOutOfControlMiss) {
