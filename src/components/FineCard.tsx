@@ -1,15 +1,14 @@
 "use client";
 
 import React from 'react';
-import { format, isSameWeek, isSameMonth } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { showSuccess } from "@/utils/toast";
 import { formatDateRange, getDatesInPeriod } from "@/lib/date-utils";
 import { FineDetail, FinesPeriodData } from "@/types/fines";
 import { Habit } from "@/types/habit";
-import { YearlyOutOfControlMissCount } from "@/types/tracking"; // Import new type
-import { supabase } from "@/lib/supabase"; // Import Supabase client
+import { YearlyOutOfControlMissCount } from "@/types/tracking";
+import { supabase } from "@/lib/supabase";
 
 interface DailyTrackingRecord {
   [date: string]: {
@@ -52,64 +51,64 @@ const FineCard: React.FC<FineCardProps> = ({
 
   React.useEffect(() => {
     const calculateFinesAndWarnings = () => {
-      const currentFines: FineDetail[] = [];
+      // 1) Always start with fines that are already saved for this period
+      const persistedFines: FineDetail[] = Object.values(finesStatus[periodKey] || {}).flat();
+      const currentFines: FineDetail[] = [...persistedFines];
       const currentWarnings: string[] = [];
       const datesInPeriod = getDatesInPeriod(periodStart, periodEnd);
       const currentYear = periodStart.getFullYear().toString();
 
-      habits.forEach(habit => {
-        // Defensive check for frequencyConditions
-        (habit.frequencyConditions || []).forEach(condition => {
-          if (condition.frequency === periodType) {
-            let actualCount = 0;
-            let outOfControlMissesUsedInPeriod = 0;
+      // 2) Only compute new fines for the current period; past periods rely on persisted fines
+      if (isCurrentPeriod) {
+        habits.forEach(habit => {
+          (habit.frequencyConditions || []).forEach(condition => {
+            if (condition.frequency === periodType) {
+              let actualCount = 0;
+              let outOfControlMissesUsedInPeriod = 0;
 
-            datesInPeriod.forEach(date => {
-              const trackingInfoForDay = dailyTracking[date]?.[habit.id];
-              if (trackingInfoForDay) {
-                // Only count if it's not an out-of-control miss AND it includes the specific tracking value
-                if (!trackingInfoForDay.isOutOfControlMiss && trackingInfoForDay.trackedValues.includes(condition.trackingValue)) {
-                  actualCount++;
+              datesInPeriod.forEach(date => {
+                const trackingInfoForDay = dailyTracking[date]?.[habit.id];
+                if (trackingInfoForDay) {
+                  if (!trackingInfoForDay.isOutOfControlMiss && trackingInfoForDay.trackedValues.includes(condition.trackingValue)) {
+                    actualCount++;
+                  }
+                  if (trackingInfoForDay.isOutOfControlMiss && trackingInfoForDay.trackedValues.length === 0) {
+                    outOfControlMissesUsedInPeriod++;
+                  }
                 }
-                // Count out-of-control misses for warning logic
-                if (trackingInfoForDay.isOutOfControlMiss && trackingInfoForDay.trackedValues.length === 0) {
-                  outOfControlMissesUsedInPeriod++;
+              });
+
+              // Fine logic: if actual count EXCEEDS the condition count
+              if (actualCount > condition.count) {
+                const existsPersisted = persistedFines.some(
+                  (f) => f.habitId === habit.id && f.trackingValue === condition.trackingValue
+                );
+                if (!existsPersisted) {
+                  currentFines.push({
+                    id: '', // new fine until saved
+                    habitId: habit.id,
+                    habitName: habit.name,
+                    fineAmount: habit.fineAmount,
+                    cause: `Tracking value '${condition.trackingValue}' occurred ${actualCount} times, which exceeds the allowed ${condition.count} times.`,
+                    status: 'unpaid',
+                    trackingValue: condition.trackingValue,
+                    conditionCount: condition.count,
+                    actualCount,
+                    created_at: new Date().toISOString(),
+                  });
                 }
               }
-            });
 
-            // Fine logic: if actual count EXCEEDS the condition count
-            if (actualCount > condition.count) {
-              const existingFine = finesStatus[periodKey]?.[habit.id]?.find(
-                f => f.trackingValue === condition.trackingValue
-              );
-              currentFines.push({
-                id: existingFine?.id || '', // Use existing ID or empty string for new fines
-                habitId: habit.id,
-                habitName: habit.name,
-                fineAmount: habit.fineAmount,
-                cause: `Tracking value '${condition.trackingValue}' occurred ${actualCount} times, which exceeds the allowed ${condition.count} times.`,
-                status: existingFine ? existingFine.status : 'unpaid',
-                trackingValue: condition.trackingValue,
-                conditionCount: condition.count,
-                actualCount: actualCount,
-                created_at: existingFine?.created_at || new Date().toISOString(), // Use existing or new timestamp
-              });
-            }
-
-            // Warning logic for current period: one away from fine limit
-            if (isCurrentPeriod) {
+              // Warning logic for current period
               const totalUsedMissesForHabitYear = yearlyOutOfControlMissCounts[habit.id]?.used_count || 0;
               const allowedYearlyMisses = habit.allowedOutOfControlMisses || 0;
 
-              // Only show warning if actualCount is greater than 0
               if (condition.count > 0 && actualCount > 0 && actualCount === condition.count - 1) {
                 currentWarnings.push(
                   `Heads up: You have tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${periodType.slice(0, -2)}. One more tracking of this value will incur a fine.`
                 );
               }
 
-              // Warning for approaching yearly out-of-control miss limit
               if (allowedYearlyMisses > 0) {
                 if (totalUsedMissesForHabitYear === allowedYearlyMisses) {
                   currentWarnings.push(
@@ -122,9 +121,10 @@ const FineCard: React.FC<FineCardProps> = ({
                 }
               }
             }
-          }
+          });
         });
-      });
+      }
+
       setFinesForPeriod(currentFines);
       setWarnings(currentWarnings);
     };
