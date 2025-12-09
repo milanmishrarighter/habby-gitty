@@ -54,6 +54,33 @@ const RecordedEntries: React.FC = () => {
   const [selectedHabitFilters, setSelectedHabitFilters] = React.useState<HabitFilterState>({});
   const [isLoadingFilters, setIsLoadingFilters] = React.useState(false);
 
+  // Helper: build a simple list of tracked items for a given date
+  const getTrackedDisplayForDate = (date: string): { name: string; color: string; text: string }[] => {
+    const dayTracking = dailyTracking[date];
+    if (!dayTracking) return [];
+    return Object.entries(dayTracking)
+      .map(([habitId, info]) => {
+        const habit = allHabits.find(h => String(h.id) === String(habitId));
+        const name = habit?.name ?? "Unknown habit";
+        const color = habit?.color ?? "#9ca3af";
+
+        const rawValues = Array.isArray(info?.trackedValues)
+          ? info.trackedValues
+          : (typeof (info as any)?.trackedValues === "string" && (info as any).trackedValues.trim() !== ""
+              ? [(info as any).trackedValues.trim()]
+              : []);
+
+        if (rawValues.length > 0) {
+          return { name, color, text: rawValues.join(", ") };
+        }
+        if (info?.isOutOfControlMiss) {
+          return { name, color, text: "Out-of-Control Miss" };
+        }
+        return null;
+      })
+      .filter(Boolean) as { name: string; color: string; text: string }[];
+  };
+
   // Function to load entries, habits, and daily tracking based on filters
   const loadAllData = React.useCallback(async (filters?: { dateRange?: DateRange, selectedHabitFilters?: HabitFilterState }) => {
     setIsLoadingFilters(true);
@@ -798,6 +825,7 @@ const RecordedEntries: React.FC = () => {
           {displayEntries.map((entry) => {
             const habitsTrackedForDay = dailyTracking[entry.date];
             const formattedDate = format(new Date(entry.date), 'do MMMM yyyy');
+            const trackedList = getTrackedDisplayForDate(entry.date);
             return (
               <Card key={entry.id} className="flex flex-col justify-between">
                 <CardHeader>
@@ -805,6 +833,22 @@ const RecordedEntries: React.FC = () => {
                     <span>{formattedDate}</span>
                     <span className="text-3xl">{entry.mood}</span>
                   </CardTitle>
+                  <div className="mt-2 text-left">
+                    <h4 className="font-semibold text-gray-800 text-sm mb-1">Tracked habits:</h4>
+                    {trackedList.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">No habits tracked for this day.</p>
+                    ) : (
+                      <ul className="list-none space-y-1">
+                        {trackedList.map((item, idx) => (
+                          <li key={idx} className="flex items-center gap-2 text-sm text-gray-700">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
+                            <span className="font-medium">{item.name}:</span>
+                            <span>{item.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent className="flex-grow">
                   <p className="text-gray-700 text-left">{entry.text}</p>
