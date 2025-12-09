@@ -73,7 +73,7 @@ const RecordedEntries: React.FC = () => {
     if (!dayTracking) return null;
     const exerciseHabit = allHabits.find(h => h.name.toLowerCase().includes("exercise"));
     if (!exerciseHabit) return null;
-    const info = dayTracking[exerciseHabit.id];
+    const info = dayTracking[String(exerciseHabit.id)];
     if (!info) return null;
     if (exerciseHabit.type === "tracking") {
       const vals = info.trackedValues || [];
@@ -177,13 +177,13 @@ const RecordedEntries: React.FC = () => {
           newDailyTracking[record.date] = {};
         }
         if (habitForRecord.type === "tracking") {
-          newDailyTracking[record.date][record.habit_id] = {
+          newDailyTracking[record.date][String(record.habit_id)] = {
             trackedValues: getTrackedValuesFromRecord(record),
             isOutOfControlMiss: !!record.is_out_of_control_miss,
           };
         } else {
           // text_field habit
-          newDailyTracking[record.date][record.habit_id] = {
+          newDailyTracking[record.date][String(record.habit_id)] = {
             textValue: getTextValueFromRecord(record),
             isOutOfControlMiss: false,
           };
@@ -223,9 +223,8 @@ const RecordedEntries: React.FC = () => {
       setDisplayEntries(mappedEntries); // Display the filtered ones
     }
 
-    // If no habit filters were applied, we still need to fetch all tracking data for the displayed entries
-    if (filterHabitIds.length === 0 && entriesData && entriesData.length > 0) {
-      // Fetch tracking rows for exactly the dates shown in the cards
+    // Always fetch tracking rows for exactly the dates shown in the cards
+    if (entriesData && entriesData.length > 0) {
       const entryDates = entriesData.map(e => e.date);
       const { data: allTrackingData, error: allTrackingError } = await supabase
         .from('daily_habit_tracking')
@@ -245,12 +244,12 @@ const RecordedEntries: React.FC = () => {
             newDailyTracking[record.date] = {};
           }
           if (habitForRecord.type === "tracking") {
-            newDailyTracking[record.date][record.habit_id] = {
+            newDailyTracking[record.date][String(record.habit_id)] = {
               trackedValues: getTrackedValuesFromRecord(record),
               isOutOfControlMiss: !!record.is_out_of_control_miss,
             };
           } else {
-            newDailyTracking[record.date][record.habit_id] = {
+            newDailyTracking[record.date][String(record.habit_id)] = {
               textValue: getTextValueFromRecord(record),
               isOutOfControlMiss: false,
             };
