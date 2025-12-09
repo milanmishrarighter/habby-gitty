@@ -29,7 +29,7 @@ const YearlyAnalytics: React.FC = () => {
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [yearlyTrackingCounts, setYearlyTrackingCounts] = React.useState<YearlyTrackingCounts>({});
   const [yearlyProgressDisplay, setYearlyProgressDisplay] = React.useState<YearlyProgressDisplay>({});
-  const [isLoading, setIsLoading] = true;
+  const [isLoading, setIsLoading] = React.useState<boolean>(true);
   const [hasDataForYear, setHasDataForYear] = React.useState(false);
 
   const years = React.useMemo(() => {
