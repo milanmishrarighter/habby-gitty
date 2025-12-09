@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import HabitTrackingDisplay from "@/components/HabitTrackingDisplay";
 import { mapSupabaseEntryToDailyEntry } from "@/utils/dailyEntryUtils"; // Import the utility
-import { getTrackedValuesFromRecord } from "@/utils/trackingUtils"; // Import the utility
+import { getTrackedValuesFromRecord, getTextValueFromRecord } from "@/utils/trackingUtils"; // Import the utilities
 
 // Shadcn UI components for filters
 import { CalendarIcon, XCircle, Check } from "lucide-react";
@@ -66,6 +66,23 @@ const RecordedEntries: React.FC = () => {
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
   const [selectedHabitFilters, setSelectedHabitFilters] = React.useState<HabitFilterState>({});
   const [isLoadingFilters, setIsLoadingFilters] = React.useState(false);
+
+  // Helper: find the "Exercise" habit and return its value for a given date
+  const getExerciseValueForDate = (date: string): string | null => {
+    const dayTracking = dailyTracking[date];
+    if (!dayTracking) return null;
+    const exerciseHabit = allHabits.find(h => h.name.toLowerCase().includes("exercise"));
+    if (!exerciseHabit) return null;
+    const info = dayTracking[exerciseHabit.id];
+    if (!info) return null;
+    if (exerciseHabit.type === "tracking") {
+      const vals = info.trackedValues || [];
+      return vals && vals.length > 0 ? vals.join(", ") : null;
+    } else {
+      const tv = info.textValue;
+      return tv && tv.trim() !== "" ? tv : null;
+    }
+  };
 
   // Function to load entries, habits, and daily tracking based on filters
   const loadAllData = React.useCallback(async (filters?: { dateRange?: DateRange, selectedHabitFilters?: HabitFilterState }) => {
@@ -151,19 +168,26 @@ const RecordedEntries: React.FC = () => {
       const datesSet = new Set<string>();
 
       filteredTrackingRecords.forEach(record => {
-        // Skip free-text habits entirely
+        // Include both tracking and text_field habits
         const habitForRecord = habitsData?.find(h => String(h.id) === String(record.habit_id));
-        if (habitForRecord && habitForRecord.type === 'text_field') {
-          return;
-        }
+        if (!habitForRecord) return;
+
         datesSet.add(record.date);
         if (!newDailyTracking[record.date]) {
           newDailyTracking[record.date] = {};
         }
-        newDailyTracking[record.date][record.habit_id] = {
-          trackedValues: getTrackedValuesFromRecord(record),
-          isOutOfControlMiss: !!record.is_out_of_control_miss,
-        };
+        if (habitForRecord.type === "tracking") {
+          newDailyTracking[record.date][record.habit_id] = {
+            trackedValues: getTrackedValuesFromRecord(record),
+            isOutOfControlMiss: !!record.is_out_of_control_miss,
+          };
+        } else {
+          // text_field habit
+          newDailyTracking[record.date][record.habit_id] = {
+            textValue: getTextValueFromRecord(record),
+            isOutOfControlMiss: false,
+          };
+        }
       });
       setDailyTracking(newDailyTracking);
       entryDatesToFetch = Array.from(datesSet);
@@ -214,18 +238,23 @@ const RecordedEntries: React.FC = () => {
       } else {
         const newDailyTracking: DailyTrackingState = {};
         allTrackingData.forEach(record => {
-          // Skip free-text habits entirely
+          // Include both tracking and text_field habits
           const habitForRecord = habitsData?.find(h => String(h.id) === String(record.habit_id));
-          if (habitForRecord && habitForRecord.type === 'text_field') {
-            return;
-          }
+          if (!habitForRecord) return;
           if (!newDailyTracking[record.date]) {
             newDailyTracking[record.date] = {};
           }
-          newDailyTracking[record.date][record.habit_id] = {
-            trackedValues: getTrackedValuesFromRecord(record),
-            isOutOfControlMiss: !!record.is_out_of_control_miss,
-          };
+          if (habitForRecord.type === "tracking") {
+            newDailyTracking[record.date][record.habit_id] = {
+              trackedValues: getTrackedValuesFromRecord(record),
+              isOutOfControlMiss: !!record.is_out_of_control_miss,
+            };
+          } else {
+            newDailyTracking[record.date][record.habit_id] = {
+              textValue: getTextValueFromRecord(record),
+              isOutOfControlMiss: false,
+            };
+          }
         });
         setDailyTracking(newDailyTracking);
       }
@@ -877,6 +906,7 @@ const RecordedEntries: React.FC = () => {
           {displayEntries.map((entry) => {
             const habitsTrackedForDay = dailyTracking[entry.date];
             const formattedDate = format(new Date(entry.date), 'do MMMM yyyy');
+            const exerciseValue = getExerciseValueForDate(entry.date);
             return (
               <Card key={entry.id} className="flex flex-col justify-between">
                 <CardHeader>
@@ -884,6 +914,10 @@ const RecordedEntries: React.FC = () => {
                     <span>{formattedDate}</span>
                     <span className="text-3xl">{entry.mood}</span>
                   </CardTitle>
+                  <div className="mt-1 text-sm text-left text-gray-700">
+                    <span className="font-semibold">Exercise:</span>{" "}
+                    <span>{exerciseValue ?? "—"}</span>
+                  </div>
                 </CardHeader>
                 <CardContent className="flex-grow">
                   <p className="text-gray-700 text-left">{entry.text}</p>
