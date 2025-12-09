@@ -11,75 +11,41 @@ import { Button } from "@/components/ui/button";
 import { ChevronsUpDown } from "lucide-react";
 
 interface HabitTrackingDisplayProps {
-  habitsTrackedForDay: { 
-    [habitId: string]: { 
-      trackedValues?: string[] | string; // Accept string[] or string
-      textValue?: string;
-      isOutOfControlMiss: boolean;
-    } 
-  } | undefined;
+  habitsTrackedForDay: { [habitId: string]: { trackedValues: string[], isOutOfControlMiss: boolean } } | undefined;
   allHabits: Habit[];
 }
 
 const HabitTrackingDisplay: React.FC<HabitTrackingDisplayProps> = ({ habitsTrackedForDay, allHabits }) => {
-  const [isOpen, setIsOpen] = React.useState(true);
+  const [isOpen, setIsOpen] = React.useState(false);
 
   const trackedHabitsList = React.useMemo(() => {
     if (!habitsTrackedForDay) return [];
 
     return Object.entries(habitsTrackedForDay)
-      .map(([habitIdRaw, trackingInfo]) => {
-        // Normalize ids to strings to avoid strict equality mismatches (e.g., number vs string vs uuid string)
-        const habitId = String(habitIdRaw);
-        const habit = allHabits.find(h => String(h.id) === habitId);
+      .map(([habitId, trackingInfo]) => {
+        const habit = allHabits.find(h => h.id === habitId);
+        if (!habit) return null;
 
-        // Fallbacks if habit metadata is missing (e.g., old habits not returned due to user_id/RLS)
-        const name = habit?.name ?? "Unknown habit";
-        const color = habit?.color ?? "#9ca3af"; // gray-400
-        const type = habit?.type; // may be undefined if not found
-
-        // For recorded entries, do not display free-text habits
-        if (type === "text_field") {
-          return null;
-        }
-
-        // Normalize trackedValues to an array of strings
-        const trackedValuesArray: string[] = Array.isArray(trackingInfo.trackedValues)
-          ? trackingInfo.trackedValues
-          : (typeof trackingInfo.trackedValues === "string" && trackingInfo.trackedValues.trim() !== ""
-              ? [trackingInfo.trackedValues]
-              : []);
-
-        // Show tracked value if present
-        if (trackedValuesArray.length > 0) {
+        if (trackingInfo.trackedValues.length > 0) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
-              <span className="font-medium">{name}:</span>
-              <span>{trackedValuesArray.join(", ")}</span>
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: habit.color }}></div>
+              <span className="font-medium">{habit.name}:</span>
+              <span>{trackingInfo.trackedValues[0]}</span>
             </li>
           );
         } else if (trackingInfo.isOutOfControlMiss) {
           return (
             <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700 italic">
               <div className="w-3 h-3 rounded-full bg-gray-400"></div>
-              <span className="font-medium">{name}:</span>
+              <span className="font-medium">{habit.name}:</span>
               <span>Out-of-Control Miss</span>
-            </li>
-          );
-        } else {
-          // No explicit value and not OOC: still show that the habit was tracked for the day.
-          return (
-            <li key={habitId} className="flex items-center gap-2 text-sm text-gray-700">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
-              <span className="font-medium">{name}</span>
-              <span className="px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-700">Tracked</span>
             </li>
           );
         }
         return null;
       })
-      .filter(Boolean) as React.ReactNode[]; // Remove any null entries
+      .filter(Boolean); // Remove any null entries
   }, [habitsTrackedForDay, allHabits]);
 
   if (!habitsTrackedForDay || trackedHabitsList.length === 0) {
