@@ -374,6 +374,32 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       return;
     }
 
+    // Require mood, new learning text, misc text tracking, and all habits tracked
+    const missingFields: string[] = [];
+    if (!moodEmoji) missingFields.push("Mood of the Day");
+    if (!newLearningText.trim()) missingFields.push("What's something new you learned today");
+    if (!miscTextTracking.trim()) missingFields.push("Misc. text tracking");
+
+    const missingHabits: string[] = [];
+    if (habits.length > 0) {
+      habits.forEach((habit) => {
+        const record = dailyTracking[entryDate]?.[habit.id];
+        const hasTrackingValue = !!record && Array.isArray(record.trackedValues) && record.trackedValues.length > 0;
+        const isMissMarked = !!record && record.isOutOfControlMiss === true;
+        if (!hasTrackingValue && !isMissMarked) {
+          missingHabits.push(habit.name);
+        }
+      });
+    }
+
+    if (missingFields.length > 0 || missingHabits.length > 0) {
+      const fieldMsg = missingFields.length > 0 ? `Missing fields: ${missingFields.join(", ")}` : "";
+      const habitMsg = missingHabits.length > 0 ? `Untracked habits: ${missingHabits.join(", ")}` : "";
+      const divider = fieldMsg && habitMsg ? " | " : "";
+      showError(`${fieldMsg}${divider}${habitMsg}`.trim());
+      return;
+    }
+
     const currentYear = new Date(entryDate).getFullYear().toString();
     const yearlyNothingsAllowed = appSettings?.settings_data?.yearly_nothings_allowed || 0;
     const currentNothingsCount = yearlyNothingsCount?.count || 0;
