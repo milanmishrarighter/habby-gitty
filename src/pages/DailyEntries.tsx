@@ -1,4 +1,3 @@
-= 3 days, and show a warning when gap is 2 days.">
 "use client";
 
 import React from "react";
