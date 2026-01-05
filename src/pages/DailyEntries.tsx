@@ -1,3 +1,4 @@
+= 3 days, and show a warning when gap is 2 days.">
 "use client";
 
 import React from "react";
@@ -13,6 +14,7 @@ import { DailyTrackingRecord, YearlyProgressRecord, YearlyOutOfControlMissCount,
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays, isMonday, getISOWeek, eachDayOfInterval } from 'date-fns'; // Added addDays, isMonday, getISOWeek, eachDayOfInterval
+import { differenceInCalendarDays } from 'date-fns';
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch"; // Import Switch component
 import { AppSettings } from "@/types/appSettings"; // Import AppSettings
@@ -60,6 +62,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   // New states for "nothing learned" feature
   const [yearlyNothingsCount, setYearlyNothingsCount] = React.useState<YearlyNothingsCount | null>(null);
   const [isNothingButtonLoading, setIsNothingButtonLoading] = React.useState(false);
+  const [missedDaysGap, setMissedDaysGap] = React.useState<number>(0);
+  const missedFineAppliedForDateRef = React.useRef<string | null>(null);
 
   // Effect to set default date, highlight, and show hint
   React.useEffect(() => {
@@ -103,6 +107,24 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     fetchLastEntryDate();
   }, []); // Run once on mount
 
+  // Compute gap and possibly add missed-entry fine
+  React.useEffect(() => {
+    if (!entryDate) return;
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const gap = differenceInCalendarDays(new Date(todayStr), new Date(entryDate));
+    setMissedDaysGap(gap);
+    // If gap >= 3 days, add a ₹500 weekly fine (once per loaded date)
+    if (gap >= 3) {
+      const uniqueKey = `${entryDate}:${todayStr}`;
+      if (missedFineAppliedForDateRef.current !== uniqueKey) {
+        (async () => {
+          await maybeAddMissedEntryFine(entryDate, gap);
+          missedFineAppliedForDateRef.current = uniqueKey;
+        })();
+      }
+    }
+  }, [entryDate]);
+
   // Effect to check authentication status
   React.useEffect(() => {
     const checkUser = async () => {
@@ -121,6 +143,63 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       authListener?.subscription.unsubscribe();
     };
   }, []); // Empty dependency array to run once on mount and listen for changes
+
+  // Helper: find the next empty date between the day after the current entry and today
+  const findNextEmptyDate = React.useCallback(async (currentDateStr: string) => {
+    const startDate = addDays(new Date(currentDateStr), 1);
+    const today = new Date();
+    const startStr = format(startDate, 'yyyy-MM-dd');
+    const todayStr = format(today, 'yyyy-MM-dd');
+    // If start is after today, just return today
+    if (startDate > today) return todayStr;
+
+    const { data, error } = await supabase
+      .from('daily_entries')
+      .select('date')
+      .gte('date', startStr)
+      .lte('date', todayStr);
+
+    if (error) {
+      console.error("Error scanning for next empty date:", error);
+      return startStr;
+    }
+
+    const existingDates = new Set((data || []).map((r: { date: string }) => format(new Date(r.date), 'yyyy-MM-dd')));
+    const allDays = eachDayOfInterval({ start: startDate, end: today });
+    for (const d of allDays) {
+      const dStr = format(d, 'yyyy-MM-dd');
+      if (!existingDates.has(dStr)) {
+        return dStr;
+      }
+    }
+    // If all dates are filled up to today, stay on today
+    return todayStr;
+  }, []);
+
+  // Helper: add a missed-entry fine (₹500) for the week of the loaded date
+  const maybeAddMissedEntryFine = async (entryDateStr: string, gap: number) => {
+    const entryDateObj = new Date(entryDateStr);
+    const weekStart = startOfWeek(entryDateObj, { weekStartsOn: 1 });
+    const periodKey = format(weekStart, "yyyy-'W'ww");
+    const fineData = {
+      period_key: periodKey,
+      habit_id: "___system___", // special system fine
+      fine_amount: 500,
+      cause: `Daily entry for ${entryDateStr} is being recorded ${gap} days late (limit: 3 days).`,
+      status: "unpaid",
+      tracking_value: `ENTRY_MISS:${entryDateStr}:${gap}`, // unique per date to avoid duplicates
+      condition_count: 3,
+      actual_count: gap,
+    };
+    const { error } = await supabase
+      .from('fines_status')
+      .upsert(fineData, { onConflict: 'period_key,habit_id,tracking_value' });
+    if (error) {
+      console.error("Error adding missed-entry fine:", error);
+    } else {
+      showSuccess("₹500 fine recorded for missing daily entries beyond 3 days.");
+    }
+  };
 
   // Load habits and app settings from Supabase on component mount
   React.useEffect(() => {
@@ -450,6 +529,14 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       showSuccess("Daily entry saved!");
       setShowOverwriteConfirmModal(false);
       setPendingEntry(null);
+      // After a short delay, jump to the next empty date automatically
+      setTimeout(async () => {
+        const nextEmpty = await findNextEmptyDate(entryDate);
+        if (nextEmpty && nextEmpty !== entryDate) {
+          setEntryDate(nextEmpty);
+          showInfo(`Moving to next empty date: ${nextEmpty}`);
+        }
+      }, 1200);
     }
   };
 
@@ -865,6 +952,11 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           value={entryDate}
           onChange={(e) => setEntryDate(e.target.value)}
         />
+        {missedDaysGap === 2 && (
+          <div className="mt-2 w-full max-w-sm p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+            Heads up: If you miss entering tomorrow, a ₹500 fine will be applied.
+          </div>
+        )}
       </div>
       {/* Journal Entry Text Box */}
       <div className="flex flex-col items-center justify-center mb-6 w-full">

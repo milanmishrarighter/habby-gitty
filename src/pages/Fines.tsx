@@ -82,10 +82,14 @@ const Fines: React.FC = () => {
           if (!newFinesStatus[fine.period_key][fine.habit_id]) {
             newFinesStatus[fine.period_key][fine.habit_id] = [];
           }
+          const habitName =
+            fine.habit_id === '___system___'
+              ? 'Daily Entry Miss'
+              : habitsData?.find(h => h.id === fine.habit_id)?.name || 'Unknown Habit';
           newFinesStatus[fine.period_key][fine.habit_id].push({
             id: fine.id,
             habitId: fine.habit_id,
-            habitName: habitsData?.find(h => h.id === fine.habit_id)?.name || 'Unknown Habit',
+            habitName,
             fineAmount: fine.fine_amount,
             cause: fine.cause,
             status: fine.status as 'paid' | 'unpaid',
