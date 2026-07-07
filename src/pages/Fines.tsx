@@ -1,281 +1,217 @@
 "use client";
 
 import React from "react";
-import { format, isAfter, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addWeeks, addMonths, isSameWeek, isSameMonth, isBefore, addDays, subDays } from 'date-fns';
-import { getWeeksInYear, getMonthsInYear } from "@/lib/date-utils";
-import FineCard from "@/components/FineCard";
-import { FineDetail, FinesPeriodData } from "@/types/fines";
+import { format } from "date-fns";
+import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
+import AddFineRewardModal from "@/components/AddFineRewardModal";
+import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
+import { FineRewardEntry, FineRewardType } from "@/types/fines";
 import { Habit } from "@/types/habit";
-import { DailyEntry } from "@/types/dailyEntry";
-import { DailyTrackingRecord as SupabaseDailyTrackingRecord, YearlyOutOfControlMissCount } from "@/types/tracking"; // Import Supabase type and new type
 import { supabase } from "@/lib/supabase";
-import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
+import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
+import { showSuccess, showError } from "@/utils/toast";
 
-interface DailyTrackingRecord {
-  [date: string]: {
-    [habitId: string]: {
-      trackedValues: string[];
-      isOutOfControlMiss: boolean;
-    };
-  };
+const GENERAL_HABIT_SENTINEL = "___general___";
+
+interface FinesStatusRow {
+  id: string;
+  type: string | null;
+  fine_amount: number;
+  cause: string;
+  habit_id: string;
+  entry_date: string | null;
+  created_at: string;
 }
 
 const Fines: React.FC = () => {
-  const [activeTab, setActiveTab] = React.useState<"weekly" | "monthly">("weekly");
   const [habits, setHabits] = React.useState<Habit[]>([]);
-  const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingRecord>({});
-  const [finesStatus, setFinesStatus] = React.useState<FinesPeriodData>({});
-  const [yearlyOutOfControlMissCounts, setYearlyOutOfControlMissCounts] = React.useState<{ [habitId: string]: YearlyOutOfControlMissCount }>({});
-  const [lastEntryDate, setLastEntryDate] = React.useState<Date | null>(null);
+  const [entries, setEntries] = React.useState<FineRewardEntry[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [modalType, setModalType] = React.useState<FineRewardType | null>(null);
+  const [entryPendingDelete, setEntryPendingDelete] = React.useState<FineRewardEntry | null>(null);
 
-  // Load data from Supabase
+  const loadData = React.useCallback(async () => {
+    setIsLoading(true);
+
+    const { data: habitsData, error: habitsError } = await supabase
+      .from('habits')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (habitsError) {
+      console.error("Error fetching habits for Fines & Rewards:", habitsError);
+      showError("Failed to load habits.");
+    } else {
+      setHabits((habitsData || []).map(mapSupabaseHabitToHabit));
+    }
+
+    const { data: entriesData, error: entriesError } = await supabase
+      .from('fines_status')
+      .select('*')
+      .order('entry_date', { ascending: false });
+
+    if (entriesError) {
+      console.error("Error fetching fines & rewards:", entriesError);
+      showError("Failed to load fines & rewards.");
+      setEntries([]);
+    } else {
+      const mapped: FineRewardEntry[] = (entriesData || []).map((row: FinesStatusRow) => ({
+        id: row.id,
+        type: (row.type as FineRewardType) || 'fine',
+        amount: row.fine_amount,
+        description: row.cause,
+        habitId: row.habit_id && row.habit_id !== GENERAL_HABIT_SENTINEL ? row.habit_id : null,
+        habitName: row.habit_id && row.habit_id !== GENERAL_HABIT_SENTINEL
+          ? (habitsData || []).find((h: { id: string }) => h.id === row.habit_id)?.name || 'Unknown Habit'
+          : null,
+        date: row.entry_date || format(new Date(row.created_at), 'yyyy-MM-dd'),
+        created_at: row.created_at,
+      }));
+      setEntries(mapped);
+    }
+
+    setIsLoading(false);
+  }, []);
+
   React.useEffect(() => {
-    const loadData = async () => {
-      // Fetch habits from Supabase
-      const { data: habitsData, error: habitsError } = await supabase
-        .from('habits')
-        .select('*')
-        .order('created_at', { ascending: true }); // Order habits by created_at
-
-      if (habitsError) {
-        console.error("Error fetching habits for Fines:", habitsError);
-      } else {
-        setHabits((habitsData || []).map(mapSupabaseHabitToHabit)); // Apply mapping
-      }
-
-      // Fetch all daily habit tracking records
-      const { data: trackingData, error: trackingError } = await supabase
-        .from('daily_habit_tracking')
-        .select('*');
-
-      if (trackingError) {
-        console.error("Error fetching daily tracking:", trackingError);
-        setDailyTracking({});
-      } else {
-        const newDailyTracking: DailyTrackingRecord = {};
-        trackingData.forEach(record => {
-          if (!newDailyTracking[record.date]) {
-            newDailyTracking[record.date] = {};
-          }
-          newDailyTracking[record.date][record.habit_id] = {
-            trackedValues: record.tracked_values,
-            isOutOfControlMiss: record.is_out_of_control_miss,
-          };
-        });
-        setDailyTracking(newDailyTracking);
-      }
-
-      // Fetch fines status from Supabase
-      const { data: finesData, error: finesError } = await supabase
-        .from('fines_status')
-        .select('*');
-
-      if (finesError) {
-        console.error("Error fetching fines status:", finesError);
-        setFinesStatus({});
-      } else {
-        const newFinesStatus: FinesPeriodData = {};
-        finesData.forEach(fine => {
-          if (!newFinesStatus[fine.period_key]) {
-            newFinesStatus[fine.period_key] = {};
-          }
-          if (!newFinesStatus[fine.period_key][fine.habit_id]) {
-            newFinesStatus[fine.period_key][fine.habit_id] = [];
-          }
-          const habitName =
-            fine.habit_id === '___system___'
-              ? 'Daily Entry Miss'
-              : habitsData?.find(h => h.id === fine.habit_id)?.name || 'Unknown Habit';
-          newFinesStatus[fine.period_key][fine.habit_id].push({
-            id: fine.id,
-            habitId: fine.habit_id,
-            habitName,
-            fineAmount: fine.fine_amount,
-            cause: fine.cause,
-            status: fine.status as 'paid' | 'unpaid',
-            trackingValue: fine.tracking_value,
-            conditionCount: fine.condition_count,
-            actualCount: fine.actual_count,
-            created_at: fine.created_at,
-          });
-        });
-        setFinesStatus(newFinesStatus);
-      }
-
-      // Fetch yearly out-of-control miss counts for the current year
-      const currentYear = new Date().getFullYear().toString();
-      const { data: missCountsData, error: missCountsError } = await supabase
-        .from('yearly_out_of_control_miss_counts')
-        .select('*')
-        .eq('year', currentYear);
-
-      if (missCountsError) {
-        console.error("Error fetching yearly out-of-control miss counts:", missCountsError);
-        setYearlyOutOfControlMissCounts({});
-      } else {
-        const newMissCounts: { [habitId: string]: YearlyOutOfControlMissCount } = {};
-        missCountsData.forEach(record => {
-          newMissCounts[record.habit_id] = record;
-        });
-        setYearlyOutOfControlMissCounts(newMissCounts);
-      }
-
-      // Fetch last entry date from Supabase
-      const { data: latestEntry, error: latestEntryError } = await supabase
-        .from('daily_entries')
-        .select('date')
-        .order('date', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (latestEntryError && latestEntryError.code !== 'PGRST116') {
-        console.error("Error fetching latest daily entry date:", latestEntryError);
-      } else if (latestEntry) {
-        setLastEntryDate(new Date(latestEntry.date));
-      } else {
-        setLastEntryDate(null);
-      }
-    };
     loadData();
-  }, []); // Empty dependency array to run once on mount
+  }, [loadData]);
 
-  const handleUpdateFineStatus = async (periodKey: string, updatedFine: FineDetail) => {
-    const fineData = {
-      period_key: periodKey,
-      habit_id: updatedFine.habitId,
-      fine_amount: updatedFine.fineAmount,
-      cause: updatedFine.cause,
-      status: updatedFine.status,
-      tracking_value: updatedFine.trackingValue,
-      condition_count: updatedFine.conditionCount,
-      actual_count: updatedFine.actualCount,
+  const handleSaveEntry = async (input: { amount: number; description: string; habitId: string | null; date: string }) => {
+    if (!modalType) return;
+
+    const payload = {
+      type: modalType,
+      fine_amount: input.amount,
+      cause: input.description,
+      habit_id: input.habitId || GENERAL_HABIT_SENTINEL,
+      entry_date: input.date,
+      status: 'unpaid',
+      period_key: input.date,
+      tracking_value: `MANUAL:${crypto.randomUUID()}`,
+      condition_count: 0,
+      actual_count: 0,
     };
+
+    const { error } = await supabase.from('fines_status').insert([payload]);
+
+    if (error) {
+      console.error("Error saving fine/reward:", error);
+      showError(`Failed to save ${modalType}.`);
+      return;
+    }
+
+    showSuccess(`${modalType === 'reward' ? 'Reward' : 'Fine'} added successfully!`);
+    setModalType(null);
+    loadData();
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!entryPendingDelete) return;
 
     const { error } = await supabase
       .from('fines_status')
-      .upsert(fineData, { onConflict: 'period_key,habit_id,tracking_value' });
+      .delete()
+      .eq('id', entryPendingDelete.id);
 
     if (error) {
-      console.error("Error updating fine status:", error);
-      showError("Failed to update fine status.");
+      console.error("Error deleting fine/reward:", error);
+      showError("Failed to delete entry.");
     } else {
-      setFinesStatus(prev => {
-        const newFinesStatus = { ...prev };
-        if (!newFinesStatus[periodKey]) {
-          newFinesStatus[periodKey] = {};
-        }
-        if (!newFinesStatus[periodKey][updatedFine.habitId]) {
-          newFinesStatus[periodKey][updatedFine.habitId] = [];
-        }
-
-        const habitFines = newFinesStatus[periodKey][updatedFine.habitId];
-        const fineIndex = habitFines.findIndex(
-          f => f.trackingValue === updatedFine.trackingValue
-        );
-
-        if (fineIndex > -1) {
-          habitFines[fineIndex] = updatedFine;
-        } else {
-          habitFines.push(updatedFine);
-        }
-        return newFinesStatus;
-      });
-      showSuccess(`Fine for '${updatedFine.habitName}' (${updatedFine.trackingValue}) marked as ${updatedFine.status}.`);
+      showSuccess("Entry deleted.");
+      setEntries(prev => prev.filter(e => e.id !== entryPendingDelete.id));
     }
+    setEntryPendingDelete(null);
   };
 
-  const currentYear = new Date().getFullYear();
-  const allWeeks = getWeeksInYear(currentYear);
-  const allMonths = getMonthsInYear(currentYear);
-  const today = new Date();
-
-  const filteredWeeks = lastEntryDate
-    ? allWeeks.filter(week => isBefore(week.start, startOfWeek(addWeeks(lastEntryDate, 1), { weekStartsOn: 1 }))).reverse()
-    : [];
-
-  const filteredMonths = lastEntryDate
-    ? allMonths.filter(month => isBefore(month.start, startOfMonth(addMonths(lastEntryDate, 1)))).reverse()
-    : [];
+  const totalFines = entries.filter(e => e.type === 'fine').reduce((sum, e) => sum + e.amount, 0);
+  const totalRewards = entries.filter(e => e.type === 'reward').reduce((sum, e) => sum + e.amount, 0);
+  const net = totalRewards - totalFines;
 
   return (
     <div id="fines" className="tab-content text-center">
-      <h2 className="text-2xl font-bold text-gray-800 mb-4">Fines</h2>
-      <p className="text-gray-600 mb-6">Track and manage fines incurred from habit deviations.</p>
+      <h2 className="text-2xl font-bold text-gray-800 mb-4">Fines & Rewards</h2>
+      <p className="text-gray-600 mb-6">Manually record fines and rewards for yourself.</p>
 
-      {/* Fines Navigation Tabs */}
-      <nav className="flex justify-center mb-6 border-b border-gray-200">
-        <button
-          className={`tab-button px-4 py-2 text-sm sm:text-base font-medium rounded-t-lg transition-all duration-300 ease-in-out ${
-            activeTab === "weekly" ? "text-blue-600 border-blue-500 active" : "text-gray-700 bg-white border-b-2 border-transparent hover:border-blue-500"
-          }`}
-          onClick={() => setActiveTab("weekly")}
-        >
-          Weekly Fines
-        </button>
-        <button
-          className={`tab-button px-4 py-2 text-sm sm:text-base font-medium rounded-t-lg transition-all duration-300 ease-in-out ${
-            activeTab === "monthly" ? "text-blue-600 border-blue-500 active" : "text-gray-700 bg-white border-b-2 border-transparent hover:border-blue-500"
-          }`}
-          onClick={() => setActiveTab("monthly")}
-        >
-          Monthly Fines
-        </button>
-      </nav>
+      {/* Summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 max-w-2xl mx-auto">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-700 font-medium">Total Fines</p>
+          <p className="text-2xl font-bold text-red-600">₹{totalFines}</p>
+        </div>
+        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-sm text-green-700 font-medium">Total Rewards</p>
+          <p className="text-2xl font-bold text-green-600">₹{totalRewards}</p>
+        </div>
+        <div className={`p-4 rounded-lg border ${net >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          <p className={`text-sm font-medium ${net >= 0 ? 'text-green-700' : 'text-red-700'}`}>Net</p>
+          <p className={`text-2xl font-bold ${net >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {net >= 0 ? '+' : '-'}₹{Math.abs(net)}
+          </p>
+        </div>
+      </div>
 
-      {/* Tab Content */}
-      {activeTab === "weekly" && (
-        <div id="weekly-fines-content" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredWeeks.length === 0 ? (
-            <div className="dotted-border-container col-span-full">
-              <p className="text-lg">No weekly entries found yet. Start tracking daily habits!</p>
+      {/* Actions */}
+      <div className="flex justify-center gap-4 mb-8">
+        <Button variant="destructive" onClick={() => setModalType('fine')}>+ Add Fine</Button>
+        <Button className="bg-green-600 hover:bg-green-700" onClick={() => setModalType('reward')}>+ Add Reward</Button>
+      </div>
+
+      {/* Entries List */}
+      {isLoading ? (
+        <p className="text-gray-500">Loading...</p>
+      ) : entries.length === 0 ? (
+        <div className="dotted-border-container">
+          <p className="text-lg">No fines or rewards recorded yet.</p>
+        </div>
+      ) : (
+        <div className="max-w-2xl mx-auto space-y-3 text-left">
+          {entries.map((entry) => (
+            <div
+              key={entry.id}
+              className={`flex items-center justify-between p-3 rounded-lg border ${
+                entry.type === 'reward' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+              }`}
+            >
+              <div>
+                <p className="font-medium text-gray-800">{entry.description}</p>
+                <p className="text-xs text-gray-500">
+                  {format(new Date(entry.date), 'MMM dd, yyyy')}
+                  {entry.habitName ? ` · ${entry.habitName}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={`font-bold ${entry.type === 'reward' ? 'text-green-600' : 'text-red-600'}`}>
+                  {entry.type === 'reward' ? '+' : '-'}₹{entry.amount}
+                </span>
+                <button
+                  onClick={() => setEntryPendingDelete(entry)}
+                  className="text-gray-400 hover:text-red-600 focus:outline-none"
+                  aria-label="Delete entry"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          ) : (
-            filteredWeeks.map((week) => (
-              <FineCard
-                key={week.periodKey}
-                periodStart={week.start}
-                periodEnd={week.end}
-                periodKey={week.periodKey}
-                periodLabel={week.label}
-                periodType="weekly"
-                habits={habits}
-                dailyTracking={dailyTracking}
-                finesStatus={finesStatus}
-                onUpdateFineStatus={handleUpdateFineStatus}
-                isCurrentPeriod={isSameWeek(week.start, today, { weekStartsOn: 1 })}
-                yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts} // Pass new prop
-              />
-            ))
-          )}
+          ))}
         </div>
       )}
 
-      {activeTab === "monthly" && (
-        <div id="monthly-fines-content" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredMonths.length === 0 ? (
-            <div className="dotted-border-container col-span-full">
-              <p className="text-lg">No monthly entries found yet. Start tracking daily habits!</p>
-            </div>
-          ) : (
-            filteredMonths.map((month) => (
-              <FineCard
-                key={month.periodKey}
-                periodStart={month.start}
-                periodEnd={month.end}
-                periodKey={month.periodKey}
-                periodLabel={month.label}
-                periodType="monthly"
-                habits={habits}
-                dailyTracking={dailyTracking}
-                finesStatus={finesStatus}
-                onUpdateFineStatus={handleUpdateFineStatus}
-                isCurrentPeriod={isSameMonth(month.start, today)}
-                yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts} // Pass new prop
-              />
-            ))
-          )}
-        </div>
-      )}
+      <AddFineRewardModal
+        isOpen={modalType !== null}
+        onClose={() => setModalType(null)}
+        type={modalType || 'fine'}
+        habits={habits}
+        onSave={handleSaveEntry}
+      />
+
+      <DeleteConfirmationModal
+        isOpen={entryPendingDelete !== null}
+        onClose={() => setEntryPendingDelete(null)}
+        onConfirm={handleConfirmDelete}
+        itemToDeleteName={entryPendingDelete ? `the ${entryPendingDelete.type} "${entryPendingDelete.description}"` : "this entry"}
+      />
     </div>
   );
 };

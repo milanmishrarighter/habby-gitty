@@ -189,6 +189,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       tracking_value: `ENTRY_MISS:${entryDateStr}:${gap}`, // unique per date to avoid duplicates
       condition_count: 3,
       actual_count: gap,
+      type: "fine",
+      entry_date: entryDateStr,
     };
     const { error } = await supabase
       .from('fines_status')
@@ -528,6 +530,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       showSuccess("Daily entry saved!");
       setShowOverwriteConfirmModal(false);
       setPendingEntry(null);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       // After a short delay, jump to the next empty date automatically
       setTimeout(async () => {
         const nextEmpty = await findNextEmptyDate(entryDate);
@@ -535,6 +538,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           setEntryDate(nextEmpty);
           showInfo(`Moving to next empty date: ${nextEmpty}`);
         }
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }, 1200);
     }
   };

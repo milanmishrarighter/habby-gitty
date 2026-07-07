@@ -110,7 +110,7 @@ const App = () => {
             }`}
             onClick={() => setActiveTab("fines")}
           >
-            Fines
+            Fines & Rewards
           </button>
           <button
             data-tab="setup"
