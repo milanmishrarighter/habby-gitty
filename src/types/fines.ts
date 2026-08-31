@@ -9,4 +9,5 @@ export interface FineRewardEntry {
   habitName: string | null;
   date: string; // yyyy-MM-dd, the date the fine/reward applies to
   created_at: string;
+  isAuto?: boolean; // Created by a habit condition rather than entered by hand
 }

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ChevronsUpDown } from "lucide-react";
+import { WEEK_OFF, TEMP_HOLD } from "@/utils/dayType";
 
 interface TrackedForDateProps {
   date: string;
@@ -62,8 +63,10 @@ const TrackedForDate: React.FC<TrackedForDateProps> = ({ date, allHabits }) => {
 
         let text = "";
         if (trackedValuesArray.length > 0) {
-          if (trackedValuesArray.includes("WEEK_OFF")) {
+          if (trackedValuesArray.includes(WEEK_OFF)) {
             text = "Week Off";
+          } else if (trackedValuesArray.includes(TEMP_HOLD)) {
+            text = "On Hold";
           } else {
             text = trackedValuesArray.join(", ");
           }

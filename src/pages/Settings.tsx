@@ -16,6 +16,8 @@ const Settings: React.FC = () => {
   const [allSettingsData, setAllSettingsData] = React.useState<Record<string, any>>({}); // To hold all settings from JSONB
   const [isLoading, setIsLoading] = React.useState(true);
   const [appPassword, setAppPassword] = React.useState<string>("password"); // App password state
+  const [accountabilityEmails, setAccountabilityEmails] = React.useState<string[]>([]);
+  const [emailInput, setEmailInput] = React.useState("");
 
   React.useEffect(() => {
     const fetchSettings = async () => {
@@ -35,11 +37,40 @@ const Settings: React.FC = () => {
         setYearlyWeekOffsAllowed(data.settings_data?.yearly_week_offs_allowed || 0);
         setYearlyNothingsAllowed(data.settings_data?.yearly_nothings_allowed || 0); // Set new field
         setAppPassword(data.settings_data?.app_password ? String(data.settings_data.app_password) : "password"); // Load app password
+        setAccountabilityEmails(
+          Array.isArray(data.settings_data?.accountability_emails) ? data.settings_data.accountability_emails : []
+        );
       }
       setIsLoading(false);
     };
     fetchSettings();
   }, []);
+
+  const handleAddEmail = () => {
+    const email = emailInput.trim().toLowerCase();
+    if (!email) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showError("Please enter a valid email address.");
+      return;
+    }
+    if (accountabilityEmails.includes(email)) {
+      showError("That email has already been added.");
+      return;
+    }
+    setAccountabilityEmails(prev => [...prev, email]);
+    setEmailInput("");
+  };
+
+  const handleEmailKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleAddEmail();
+    }
+  };
+
+  const handleRemoveEmail = (emailToRemove: string) => {
+    setAccountabilityEmails(prev => prev.filter(e => e !== emailToRemove));
+  };
 
   const handleSaveSettings = async () => {
     if (typeof yearlyWeekOffsAllowed !== 'number' || yearlyWeekOffsAllowed < 0) {
@@ -58,6 +89,7 @@ const Settings: React.FC = () => {
       yearly_week_offs_allowed: yearlyWeekOffsAllowed,
       yearly_nothings_allowed: yearlyNothingsAllowed, // Save new field
       app_password: appPassword, // Save app password
+      accountability_emails: accountabilityEmails,
     };
 
     let error = null;
@@ -154,6 +186,60 @@ const Settings: React.FC = () => {
             </p>
           </div>
           <Button onClick={handleSaveSettings} disabled={isLoading}>
+            {isLoading ? "Saving..." : "Save Settings"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="w-full max-w-md mx-auto mt-6">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold">Accountability Emails</CardTitle>
+        </CardHeader>
+        <CardContent className="text-left">
+          <Label htmlFor="accountability-email" className="block text-sm font-medium text-gray-700 mb-1">
+            Add an email address
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              type="email"
+              id="accountability-email"
+              placeholder="friend@example.com"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              onKeyDown={handleEmailKeyDown}
+              className="w-full"
+              disabled={isLoading}
+            />
+            <Button type="button" onClick={handleAddEmail} className="shrink-0" disabled={!emailInput.trim() || isLoading}>
+              Add
+            </Button>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            These people can then be picked per habit to be emailed when a fine condition is met.
+            Make sure they've agreed to receive these.
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {accountabilityEmails.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">No accountability emails added yet.</p>
+            ) : (
+              accountabilityEmails.map((email) => (
+                <span key={email} className="bg-blue-200 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded-full flex items-center">
+                  {email}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveEmail(email)}
+                    className="ml-2 text-blue-800 hover:text-blue-900 focus:outline-none"
+                    aria-label={`Remove ${email}`}
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+
+          <Button onClick={handleSaveSettings} disabled={isLoading} className="mt-4">
             {isLoading ? "Saving..." : "Save Settings"}
           </Button>
         </CardContent>

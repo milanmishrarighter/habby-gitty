@@ -1,3 +1,5 @@
+import { DayType } from "@/utils/dayType";
+
 export interface DailyEntry {
   id: string; // Unique ID from Supabase
   date: string;
@@ -7,4 +9,5 @@ export interface DailyEntry {
   timestamp: string;
   // New field: Misc. text tracking
   miscTextTracking?: string;
+  dayType?: DayType; // Which kind of day this entry was recorded as
 }

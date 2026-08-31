@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, getISOWeek, eachDayOfInterval } from 'date-fns'; // Added getISOWeek, eachDayOfInterval
 import { AppSettings } from "@/types/appSettings"; // Import AppSettings
+import { WEEK_OFF, TEMP_HOLD, isSentinelTracking } from "@/utils/dayType";
 
 interface EditDailyEntryModalProps {
   isOpen: boolean;
@@ -203,8 +204,8 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
             if (!calculatedWeeklyCounts[record.habit_id]) {
               calculatedWeeklyCounts[record.habit_id] = {};
             }
-            // Only count if not a "WEEK_OFF" entry
-            if (!record.tracked_values.includes("WEEK_OFF")) {
+            // Week offs and temporary holds are deliberate skips — never counted.
+            if (!isSentinelTracking(record.tracked_values)) {
               record.tracked_values.forEach(value => {
                 calculatedWeeklyCounts[record.habit_id][value] = (calculatedWeeklyCounts[record.habit_id][value] || 0) + 1;
               });
@@ -229,8 +230,8 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
             if (!calculatedMonthlyCounts[record.habit_id]) {
               calculatedMonthlyCounts[record.habit_id] = {};
             }
-            // Only count if not a "WEEK_OFF" entry
-            if (!record.tracked_values.includes("WEEK_OFF")) {
+            // Week offs and temporary holds are deliberate skips — never counted.
+            if (!isSentinelTracking(record.tracked_values)) {
               record.tracked_values.forEach(value => {
                 calculatedMonthlyCounts[record.habit_id][value] = (calculatedMonthlyCounts[record.habit_id][value] || 0) + 1;
               });
@@ -248,6 +249,22 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
     };
     fetchData();
   }, [initialEntry]); // Only re-fetch when initialEntry changes (modal opens/closes)
+
+  // A deactivated habit is dropped from this entry unless it was already tracked
+  // on this date back when it was still active — that history stays editable.
+  const editableHabits = React.useMemo(
+    () => habits.filter(habit => !habit.isDeactivated || !!modalHabitTracking[habit.id]),
+    [habits, modalHabitTracking],
+  );
+
+  // Temporary hold inside the modal is just a local tracking-state change; it is
+  // persisted along with everything else when the entry is saved.
+  const handleToggleTemporaryHoldLocally = async (habit: Habit, _dates: string[], hold: boolean) => {
+    setModalHabitTracking(prev => ({
+      ...prev,
+      [habit.id]: { trackedValues: hold ? [TEMP_HOLD] : [], isOutOfControlMiss: false },
+    }));
+  };
 
   // Local handler for DailyHabitTrackerCard to update modal's internal tracking state
   const handleUpdateTrackingLocally = async (
@@ -445,39 +462,36 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
 
           <div className="mt-4 pt-4 border-t border-gray-200">
             <h3 className="text-xl font-bold text-gray-800 mb-4">Daily Habit Tracking</h3>
-            {habits.length === 0 ? (
+            {editableHabits.length === 0 ? (
               <div className="dotted-border-container">
                 <p className="text-lg mb-2">No habits added yet.</p>
                 <p className="text-sm text-gray-500">Add habits in the 'Habit Setup' tab.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {habits.map((habit) => {
-                  const habitTrackingForModal = modalHabitTracking[habit.id];
-                  const initialTrackedValue = habitTrackingForModal?.trackedValues?.length > 0
-                    ? habitTrackingForModal.trackedValues[0]
-                    : null;
-                  const initialIsOutOfControlMiss = habitTrackingForModal?.isOutOfControlMiss || false;
-
+                {editableHabits.map((habit) => {
                   // Determine if this specific day is part of a "week off"
                   const isWeekOffForThisDay = currentWeekOffRecord?.is_off && eachDayOfInterval({
                     start: startOfWeek(new Date(editedDate), { weekStartsOn: 1 }),
                     end: endOfWeek(new Date(editedDate), { weekStartsOn: 1 })
                   }).some(day => format(day, 'yyyy-MM-dd') === editedDate);
 
+                  const trackingForDate = isWeekOffForThisDay
+                    ? { trackedValues: [WEEK_OFF], isOutOfControlMiss: false }
+                    : modalHabitTracking[habit.id];
+
                   return (
                     <DailyHabitTrackerCard
                       key={`${habit.id}-${initialEntry.date}`} // Key based on initial entry date to prevent re-render on editedDate change
                       habit={habit}
-                      entryDate={editedDate} // Pass editedDate as the target date for saving
+                      dates={[editedDate]}
+                      trackingByDate={{ [editedDate]: trackingForDate }}
                       onUpdateTracking={handleUpdateTrackingLocally} // Use local handler
+                      onToggleTemporaryHold={handleToggleTemporaryHoldLocally}
                       currentYearlyProgress={yearlyProgress[currentYearForDisplay]?.[habit.id] || 0}
-                      initialTrackedValue={initialTrackedValue}
-                      initialIsOutOfControlMiss={initialIsOutOfControlMiss}
                       yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
                       weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
                       monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
-                      isWeekOffForThisDay={isWeekOffForThisDay || false} // Pass the new prop
                     />
                   );
                 })}

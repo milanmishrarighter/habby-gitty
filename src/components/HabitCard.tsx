@@ -3,6 +3,8 @@
 import React from 'react';
 import { Button } from "@/components/ui/button"; // Assuming you have a Button component
 import { Habit } from "@/types/habit"; // Import the centralized Habit interface
+import { DAY_TYPE_LABELS } from "@/utils/dayType";
+import { FREQUENCY_LABELS } from "@/utils/habitConditions";
 
 interface HabitCardProps {
   habit: Habit;
@@ -17,10 +19,30 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
   }, [habit]);
 
   return (
-    <div id={habit.id} className="p-4 rounded-lg shadow-md flex flex-col space-y-2" style={{ backgroundColor: `${habit.color}33` }}>
+    <div
+      id={habit.id}
+      className={`p-4 rounded-lg shadow-md flex flex-col space-y-2 ${habit.isDeactivated ? "opacity-60 grayscale" : ""}`}
+      style={{ backgroundColor: `${habit.color}33` }}
+    >
       <div className="flex items-center justify-between">
         <span className="text-gray-800 font-bold text-lg">{habit.name}</span>
         <div className="w-6 h-6 rounded-full border-2 border-white shadow" style={{ backgroundColor: habit.color }}></div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mt-1">
+        {habit.isDeactivated && (
+          <span className="bg-amber-200 text-amber-900 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            Deactivated
+          </span>
+        )}
+        <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+          {DAY_TYPE_LABELS[habit.dayType]}
+        </span>
+        {habit.allowTemporaryHold && (
+          <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            Hold allowed
+          </span>
+        )}
       </div>
 
       {(habit.trackingValues && habit.trackingValues.length > 0) && (
@@ -34,10 +56,16 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
       )}
 
       {(habit.frequencyConditions && habit.frequencyConditions.length > 0) && (
-        <div className="mt-2 text-sm text-gray-600">
-          <h4 className="font-semibold mb-1">Frequency Conditions:</h4>
+        <div className="mt-2 text-sm text-gray-600 text-left">
+          <h4 className="font-semibold mb-1">Conditions:</h4>
           {habit.frequencyConditions.map((condition, index) => (
-            <p key={index}>&bull; {condition.trackingValue}: {condition.count} per {condition.frequency}</p>
+            <p key={index}>
+              &bull; If {condition.trackingValue} {condition.operator} {condition.count}{" "}
+              ({FREQUENCY_LABELS[condition.frequency].toLowerCase()}) →{" "}
+              <span className={condition.outcome === "reward" ? "text-green-700 font-semibold" : "text-red-700 font-semibold"}>
+                {condition.outcome}
+              </span>
+            </p>
           ))}
         </div>
       )}
@@ -48,6 +76,16 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
 
       {habit.fineAmount > 0 && (
         <p className="mt-2 text-sm text-red-600 font-bold">Fine: ₹{habit.fineAmount}</p>
+      )}
+
+      {habit.rewardAmount > 0 && (
+        <p className="mt-1 text-sm text-green-600 font-bold">Reward: ₹{habit.rewardAmount}</p>
+      )}
+
+      {habit.alertEmails && habit.alertEmails.length > 0 && (
+        <p className="mt-1 text-xs text-gray-600 text-left">
+          Emails on fine: {habit.alertEmails.join(", ")}
+        </p>
       )}
 
       {habit.allowedOutOfControlMisses > 0 && (

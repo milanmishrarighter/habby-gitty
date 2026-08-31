@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Progress } from "@/components/ui/progress";
 import { getDaysInYear, differenceInDays, startOfYear, endOfYear, format, isThisYear } from 'date-fns';
 import { showSuccess, showError } from "@/utils/toast";
+import { isSentinelTracking } from "@/utils/dayType";
 
 interface YearlyTrackingCounts {
   [habitId: string]: {
@@ -82,6 +83,8 @@ const YearlyAnalytics: React.FC = () => {
       const calculatedYearlyTrackingCounts: YearlyTrackingCounts = {};
       let foundTrackingData = false;
       trackingData.forEach(record => {
+        // Week offs and temporary holds are deliberate skips — never counted.
+        if (isSentinelTracking(record.tracked_values)) return;
         foundTrackingData = true;
         if (!calculatedYearlyTrackingCounts[record.habit_id]) {
           calculatedYearlyTrackingCounts[record.habit_id] = {};

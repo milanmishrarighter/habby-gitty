@@ -1,14 +1,24 @@
 "use client";
 
 import React from 'react';
+import { format } from 'date-fns';
 import { showSuccess, showError } from '@/utils/toast';
 import { Habit } from '@/types/habit';
 import { YearlyOutOfControlMissCount } from '@/types/tracking';
 import { Switch } from "@/components/ui/switch";
+import { DAY_TYPE_LABELS, WEEK_OFF, TEMP_HOLD } from '@/utils/dayType';
+import { evaluateOperator } from '@/utils/habitConditions';
+
+export interface TrackingState {
+  trackedValues: string[];
+  isOutOfControlMiss: boolean;
+}
 
 interface DailyHabitTrackerCardProps {
   habit: Habit;
-  entryDate: string; // The date for which we are tracking
+  /** One entry per date being tracked. A single date renders the classic layout. */
+  dates: string[];
+  trackingByDate: { [date: string]: TrackingState | undefined };
   onUpdateTracking: (
     habitId: string,
     date: string,
@@ -17,138 +27,103 @@ interface DailyHabitTrackerCardProps {
     isOutOfControlMiss: boolean,
     oldIsOutOfControlMiss: boolean,
   ) => Promise<void>;
+  onToggleTemporaryHold: (habit: Habit, dates: string[], hold: boolean) => Promise<void>;
   currentYearlyProgress: number;
-  initialTrackedValue: string | null;
-  initialIsOutOfControlMiss: boolean;
   yearlyOutOfControlMissCounts: { [habitId: string]: YearlyOutOfControlMissCount };
   weeklyTrackingCounts: { [trackingValue: string]: number };
   monthlyTrackingCounts: { [trackingValue: string]: number };
-  isWeekOffForThisDay: boolean; // New prop to indicate if the day is part of a week off
 }
 
 const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   habit,
-  entryDate,
+  dates,
+  trackingByDate,
   onUpdateTracking,
+  onToggleTemporaryHold,
   currentYearlyProgress,
-  initialTrackedValue,
-  initialIsOutOfControlMiss,
   yearlyOutOfControlMissCounts,
   weeklyTrackingCounts,
   monthlyTrackingCounts,
-  isWeekOffForThisDay, // Destructure new prop
 }) => {
-  const [selectedTrackingValue, setSelectedTrackingValue] = React.useState<string | null>(initialTrackedValue);
-  const [displayYearlyProgress, setDisplayYearlyProgress] = React.useState(currentYearlyProgress);
-  const [isOutOfControlMiss, setIsOutOfControlMiss] = React.useState(initialIsOutOfControlMiss);
-  const [fineOrWarningMessage, setFineOrWarningMessage] = React.useState<string | null>(null);
+  const [isHoldLoading, setIsHoldLoading] = React.useState(false);
 
-  const currentYear = new Date(entryDate).getFullYear().toString();
   const habitMissCount = yearlyOutOfControlMissCounts[habit.id];
   const usedMisses = habitMissCount?.used_count || 0;
   const allowedMisses = habit.allowedOutOfControlMisses || 0;
   const remainingMisses = allowedMisses - usedMisses;
 
-  React.useEffect(() => {
-    // If the day is marked as week off, override local state to reflect it
-    if (isWeekOffForThisDay) {
-      setSelectedTrackingValue("WEEK_OFF");
-      setIsOutOfControlMiss(false); // Week off is not an out-of-control miss
-    } else {
-      setSelectedTrackingValue(initialTrackedValue);
-      setIsOutOfControlMiss(initialIsOutOfControlMiss);
-    }
-  }, [initialTrackedValue, initialIsOutOfControlMiss, isWeekOffForThisDay]);
+  const isMultiDate = dates.length > 1;
+  const valuesFor = (date: string) => trackingByDate[date]?.trackedValues || [];
+  const isWeekOff = (date: string) => valuesFor(date).includes(WEEK_OFF);
+  const isHeld = (date: string) => valuesFor(date).includes(TEMP_HOLD);
+  const selectedValueFor = (date: string) => {
+    const values = valuesFor(date);
+    if (values.length === 0 || values.includes(WEEK_OFF) || values.includes(TEMP_HOLD)) return null;
+    return values[0];
+  };
 
-  React.useEffect(() => {
-    setDisplayYearlyProgress(currentYearlyProgress);
-  }, [currentYearlyProgress]);
+  const allWeekOff = dates.every(isWeekOff);
+  const allHeld = dates.length > 0 && dates.every(isHeld);
 
-  // Function to calculate and set fine/warning message
-  const calculateFineOrWarning = React.useCallback(() => {
-    if (isWeekOffForThisDay) {
-      return null; // No fines/warnings if week is off
-    }
+  // Fine/warning message for the habit as a whole, based on the period counts.
+  const fineOrWarningMessage = React.useMemo(() => {
+    if (allWeekOff || allHeld) return null;
 
-    const currentWarnings: string[] = [];
-    const currentFines: string[] = [];
+    const warnings: string[] = [];
+    const fines: string[] = [];
+    const rewards: string[] = [];
 
-    // Check frequency conditions for fines/warnings
+    // Live preview only covers the periods this card already has counts for.
+    // Daily and yearly conditions are still evaluated for real when you save.
     (habit.frequencyConditions || []).forEach(condition => {
+      if (condition.frequency !== 'weekly' && condition.frequency !== 'monthly') return;
+
       const periodCounts = condition.frequency === 'weekly' ? weeklyTrackingCounts : monthlyTrackingCounts;
       const actualCount = periodCounts[condition.trackingValue] || 0;
+      const period = condition.frequency === 'weekly' ? 'week' : 'month';
 
-      // Fine logic: if actual count EXCEEDS the condition count
-      if (actualCount > condition.count) {
-        currentFines.push(
-          `Fine: Tracking value '${condition.trackingValue}' occurred ${actualCount} times, which exceeds the allowed ${condition.count} times this ${condition.frequency.slice(0, -2)}.`
-        );
-      }
-      // Warning logic: one away from fine limit, only if actualCount is > 0
-      else if (condition.count > 0 && actualCount > 0 && actualCount === condition.count - 1) {
-        currentWarnings.push(
-          `Heads up: You have tracked '${condition.trackingValue}' ${actualCount} times for '${habit.name}' this ${condition.frequency.slice(0, -2)}. One more tracking of this value will incur a fine.`
-        );
+      if (!evaluateOperator(actualCount, condition.operator, condition.count)) return;
+
+      const detail =
+        `'${condition.trackingValue}' is at ${actualCount} this ${period} ` +
+        `(condition: ${condition.operator} ${condition.count})`;
+
+      if (condition.outcome === 'reward') {
+        rewards.push(`Reward: ${detail}. Worth ₹${habit.rewardAmount || 0} on save.`);
+      } else {
+        fines.push(`Fine: ${detail}. Worth ₹${habit.fineAmount || 0} on save.`);
       }
     });
 
-    // Check out-of-control miss limit for warnings
     if (allowedMisses > 0) {
-      // The `usedMisses` already reflects the current state after `onUpdateTracking`
       if (usedMisses > allowedMisses) {
-        currentFines.push(
-          `Fine: You have exceeded your ${allowedMisses} allowed out-of-control misses for '${habit.name}' this year.`
-        );
+        fines.push(`Fine: You have exceeded your ${allowedMisses} allowed out-of-control misses for '${habit.name}' this year.`);
       } else if (usedMisses === allowedMisses) {
-        currentWarnings.push(
-          `Alert: You have used all ${allowedMisses} allowed out-of-control misses for '${habit.name}' this year. Future misses will count towards fines.`
-        );
+        warnings.push(`Alert: You have used all ${allowedMisses} allowed out-of-control misses for '${habit.name}' this year. Future misses will count towards fines.`);
       } else if (usedMisses === allowedMisses - 1) {
-        currentWarnings.push(
-          `Heads up: You have 1 out-of-control miss remaining for '${habit.name}' this year.`
-        );
+        warnings.push(`Heads up: You have 1 out-of-control miss remaining for '${habit.name}' this year.`);
       }
     }
 
-    if (currentFines.length > 0) {
-      return currentFines[0]; // Prioritize fine message
-    }
-    if (currentWarnings.length > 0) {
-      return currentWarnings[0]; // Then warning message
-    }
-    return null;
-  }, [
-    habit,
-    weeklyTrackingCounts,
-    monthlyTrackingCounts,
-    yearlyOutOfControlMissCounts,
-    allowedMisses,
-    usedMisses,
-    isWeekOffForThisDay,
-  ]);
+    return fines[0] || rewards[0] || warnings[0] || null;
+  }, [habit, weeklyTrackingCounts, monthlyTrackingCounts, allowedMisses, usedMisses, allWeekOff, allHeld]);
 
-  // Recalculate message whenever relevant props or internal states change
-  React.useEffect(() => {
-    setFineOrWarningMessage(calculateFineOrWarning());
-  }, [calculateFineOrWarning, selectedTrackingValue, isOutOfControlMiss]);
-
-
-  const handleValueClick = async (value: string) => {
-    if (isWeekOffForThisDay) {
+  const handleValueClick = async (date: string, value: string) => {
+    if (isWeekOff(date)) {
       showError("This day is part of a 'Week Off'. Individual habit tracking is disabled.");
       return;
     }
-    if (!entryDate) {
-      showError("Please select a date first to track habits.");
+    if (isHeld(date)) {
+      showError(`'${habit.name}' is on temporary hold for ${date}. Release the hold to track it.`);
       return;
     }
 
-    let newSelectedValue: string | null;
-    let newYearlyProgress = displayYearlyProgress;
-    let oldIsOutOfControlMissState = isOutOfControlMiss; // Capture current state before potential change
-
-    // Safely access contributingValues
+    const selectedTrackingValue = selectedValueFor(date);
+    const oldIsOutOfControlMiss = trackingByDate[date]?.isOutOfControlMiss || false;
     const contributingValues = habit.yearlyGoal?.contributingValues || [];
+
+    let newSelectedValue: string | null;
+    let newYearlyProgress = currentYearlyProgress;
 
     if (selectedTrackingValue === value) {
       // Untracking the current value
@@ -157,142 +132,184 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
         newYearlyProgress = Math.max(0, newYearlyProgress - 1);
       }
     } else {
-      // Tracking a new value
       newSelectedValue = value;
       if (selectedTrackingValue && contributingValues.includes(selectedTrackingValue)) {
-        newYearlyProgress = Math.max(0, newYearlyProgress - 1); // Decrement if previous was contributing
+        newYearlyProgress = Math.max(0, newYearlyProgress - 1);
       }
       if (contributingValues.includes(value)) {
-        newYearlyProgress += 1; // Increment if new is contributing
+        newYearlyProgress += 1;
       }
     }
-
-    // If a value is selected, it cannot be an out-of-control miss
-    if (newSelectedValue !== null && isOutOfControlMiss) {
-      setIsOutOfControlMiss(false); // Automatically uncheck out-of-control miss if a value is tracked
-    }
-
-    setSelectedTrackingValue(newSelectedValue);
-    setDisplayYearlyProgress(newYearlyProgress);
 
     await onUpdateTracking(
       habit.id,
-      entryDate,
+      date,
       newSelectedValue ? [newSelectedValue] : [],
       newYearlyProgress,
-      newSelectedValue === null && isOutOfControlMiss, // Pass the state after potential auto-uncheck
-      oldIsOutOfControlMissState
+      // A tracked value clears any out-of-control miss for that day.
+      newSelectedValue === null && oldIsOutOfControlMiss,
+      oldIsOutOfControlMiss,
     );
-    showSuccess(`Habit '${habit.name}' updated for ${entryDate}!`);
+    showSuccess(`Habit '${habit.name}' updated for ${date}!`);
   };
 
-  const handleOutOfControlMissToggle = async (checked: boolean) => {
-    if (isWeekOffForThisDay) {
+  const handleOutOfControlMissToggle = async (date: string, checked: boolean) => {
+    if (isWeekOff(date)) {
       showError("This day is part of a 'Week Off'. Individual habit tracking is disabled.");
       return;
     }
-    if (!entryDate) {
-      showError("Please select a date first to track habits.");
-      return;
-    }
-
-    if (selectedTrackingValue !== null) {
+    if (selectedValueFor(date) !== null) {
       showError("Cannot mark as 'Out-of-Control Miss' if a value is already tracked.");
       return;
     }
-
     if (checked && remainingMisses <= 0) {
       showError(`You have used all ${allowedMisses} allowed out-of-control misses for '${habit.name}' this year.`);
       return;
     }
 
-    const oldIsOutOfControlMissState = isOutOfControlMiss;
-    setIsOutOfControlMiss(checked);
-
-    await onUpdateTracking(
-      habit.id,
-      entryDate,
-      [], // No tracked values when marking as out-of-control miss
-      displayYearlyProgress, // Yearly progress doesn't change for out-of-control miss
-      checked,
-      oldIsOutOfControlMissState
-    );
-    showSuccess(`Habit '${habit.name}' marked as out-of-control miss for ${entryDate}.`);
+    const oldIsOutOfControlMiss = trackingByDate[date]?.isOutOfControlMiss || false;
+    await onUpdateTracking(habit.id, date, [], currentYearlyProgress, checked, oldIsOutOfControlMiss);
+    showSuccess(`Habit '${habit.name}' marked as out-of-control miss for ${date}.`);
   };
 
-  const isMissed = selectedTrackingValue === null;
+  const handleHoldToggle = async (checked: boolean) => {
+    setIsHoldLoading(true);
+    await onToggleTemporaryHold(habit, dates, checked);
+    setIsHoldLoading(false);
+  };
+
+  const renderDateBlock = (date: string) => {
+    const selectedTrackingValue = selectedValueFor(date);
+    const isOutOfControlMiss = trackingByDate[date]?.isOutOfControlMiss || false;
+    const held = isHeld(date);
+
+    return (
+      <div
+        key={date}
+        className={isMultiDate ? "rounded-lg bg-white/60 p-3 border border-white" : ""}
+      >
+        {isMultiDate && (
+          <p className="text-sm font-semibold text-gray-700 text-left mb-2">
+            {format(new Date(date), 'EEE, d MMM')}
+          </p>
+        )}
+
+        {held ? (
+          <p className="text-sm text-gray-600 italic text-left">On temporary hold — not counted.</p>
+        ) : (
+          <>
+            {(habit.trackingValues && habit.trackingValues.length > 0) && (
+              <>
+                {!isMultiDate && <p className="font-medium mb-1 text-left">Track for today:</p>}
+                <div className="flex flex-wrap gap-2">
+                  {habit.trackingValues.map((value) => (
+                    <div
+                      key={value}
+                      className={`cursor-pointer px-4 py-2 rounded-lg border-2 transition-all duration-200
+                        ${selectedTrackingValue === value
+                          ? `bg-blue-100 border-blue-500 text-blue-800`
+                          : `bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200`
+                        }`}
+                      onClick={() => handleValueClick(date, value)}
+                    >
+                      {value}
+                      <span className="ml-2 text-xs text-gray-500">
+                        (W:{weeklyTrackingCounts[value] || 0}/M:{monthlyTrackingCounts[value] || 0})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Out-of-Control Miss Toggle */}
+            {selectedTrackingValue === null && allowedMisses > 0 && (
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
+                <label htmlFor={`out-of-control-miss-${habit.id}-${date}`} className="flex-grow text-sm font-medium text-gray-700 text-left cursor-pointer">
+                  Mark as Out-of-Control Miss
+                  <p className="text-xs text-gray-500">({remainingMisses} / {allowedMisses} remaining this year)</p>
+                </label>
+                <Switch
+                  id={`out-of-control-miss-${habit.id}-${date}`}
+                  checked={isOutOfControlMiss}
+                  onCheckedChange={(checked) => handleOutOfControlMissToggle(date, checked)}
+                  disabled={!isOutOfControlMiss && remainingMisses <= 0}
+                />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="p-4 rounded-lg shadow-md flex flex-col space-y-3" style={{ backgroundColor: `${habit.color}33` }}>
       <div className="flex items-center justify-between">
-        <span className="text-gray-800 font-bold text-lg">{habit.name}</span>
+        <span className="text-gray-800 font-bold text-lg text-left">{habit.name}</span>
         <div className="flex items-center gap-2">
           {habit.yearlyGoal && habit.yearlyGoal.count > 0 && (
             <span className="text-sm font-semibold text-gray-600">
-              {displayYearlyProgress} / {habit.yearlyGoal.count}
+              {currentYearlyProgress} / {habit.yearlyGoal.count}
             </span>
           )}
           <div className="w-6 h-6 rounded-full border-2 border-white shadow" style={{ backgroundColor: habit.color }}></div>
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-2 -mt-1">
+        <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+          {DAY_TYPE_LABELS[habit.dayType]}
+        </span>
+        {isMultiDate && (
+          <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            {dates.length} days
+          </span>
+        )}
+      </div>
+
       {habit.hintText && (
-        <p className="text-sm text-gray-600 italic text-left -mt-2">{habit.hintText}</p>
+        <p className="text-sm text-gray-600 italic text-left">{habit.hintText}</p>
       )}
 
-      {isWeekOffForThisDay ? (
+      {allWeekOff ? (
         <div className="dotted-border-container py-6">
           <p className="text-lg font-semibold text-blue-700">Week Off!</p>
           <p className="text-sm text-gray-600">This week is marked off for habit tracking.</p>
         </div>
       ) : (
         <>
-          {(habit.trackingValues && habit.trackingValues.length > 0) && (
-            <div className="mt-2">
-              <p className="font-medium mb-1 text-left">Track for today:</p>
-              <div className="flex flex-wrap gap-2">
-                {habit.trackingValues.map((value, index) => (
-                  <div
-                    key={index}
-                    className={`cursor-pointer px-4 py-2 rounded-lg border-2 transition-all duration-200
-                      ${selectedTrackingValue === value
-                        ? `bg-blue-100 border-blue-500 text-blue-800`
-                        : `bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200`
-                      }
-                      ${!entryDate ? 'opacity-50 cursor-not-allowed' : ''}
-                    `}
-                    onClick={() => handleValueClick(value)}
-                  >
-                    {value}
-                    <span className="ml-2 text-xs text-gray-500">
-                      (W:{weeklyTrackingCounts[value] || 0}/M:{monthlyTrackingCounts[value] || 0})
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Fine/Warning Message Display */}
-          {fineOrWarningMessage && (
-            <div className={`mt-3 p-2 rounded-md text-sm text-left ${fineOrWarningMessage.startsWith('Fine:') ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-yellow-100 text-yellow-800 border border-yellow-300'}`}>
-              {fineOrWarningMessage}
-            </div>
-          )}
-
-          {/* Out-of-Control Miss Toggle */}
-          {isMissed && allowedMisses > 0 && (
-            <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
-              <label htmlFor={`out-of-control-miss-${habit.id}`} className="flex-grow text-sm font-medium text-gray-700 text-left cursor-pointer">
-                Mark as Out-of-Control Miss
-                <p className="text-xs text-gray-500">({remainingMisses} / {allowedMisses} remaining this year)</p>
+          {/* Temporary Hold Toggle — only for habits configured to allow it */}
+          {habit.allowTemporaryHold && (
+            <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/60">
+              <label htmlFor={`temporary-hold-${habit.id}`} className="flex-grow text-sm font-medium text-gray-700 text-left cursor-pointer">
+                Temporary hold
+                <p className="text-xs text-gray-500">
+                  {isMultiDate ? `Skips this habit for all ${dates.length} days.` : "Skips this habit for this day."}
+                </p>
               </label>
               <Switch
-                id={`out-of-control-miss-${habit.id}`}
-                checked={isOutOfControlMiss}
-                onCheckedChange={handleOutOfControlMissToggle}
-                disabled={!entryDate || (isOutOfControlMiss === false && remainingMisses <= 0)}
+                id={`temporary-hold-${habit.id}`}
+                checked={allHeld}
+                onCheckedChange={handleHoldToggle}
+                disabled={isHoldLoading}
               />
+            </div>
+          )}
+
+          <div className={isMultiDate ? "flex flex-col gap-3" : ""}>
+            {dates.map(renderDateBlock)}
+          </div>
+
+          {fineOrWarningMessage && (
+            <div className={`mt-3 p-2 rounded-md text-sm text-left ${
+              fineOrWarningMessage.startsWith('Fine:')
+                ? 'bg-red-100 text-red-800 border border-red-300'
+                : fineOrWarningMessage.startsWith('Reward:')
+                  ? 'bg-green-100 text-green-800 border border-green-300'
+                  : 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+            }`}>
+              {fineOrWarningMessage}
             </div>
           )}
         </>

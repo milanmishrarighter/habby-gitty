@@ -9,28 +9,28 @@ import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
-
-interface FrequencyConditionInput {
-  trackingValue: string;
-  frequency: "weekly" | "monthly";
-  count: number | "";
-}
-
-const MAX_FREQUENCY_CONDITIONS = 5;
+import HabitDayTypeFields from "@/components/HabitDayTypeFields";
+import { DayType } from "@/utils/dayType";
+import HabitConditionsEditor, { ConditionInput, emptyCondition } from "@/components/HabitConditionsEditor";
 
 const HabitSetup: React.FC = () => {
   const [habitName, setHabitName] = React.useState("");
   const [habitColor, setHabitColor] = React.useState("#4F46E5");
   const [tempTrackingValues, setTempTrackingValues] = React.useState<string[]>([]);
   const [trackingValueInput, setTrackingValueInput] = React.useState("");
-  const [frequencyConditions, setFrequencyConditions] = React.useState<FrequencyConditionInput[]>([
-    { trackingValue: "", frequency: "weekly", count: "" },
-  ]);
+  const [frequencyConditions, setFrequencyConditions] = React.useState<ConditionInput[]>([emptyCondition()]);
   const [fineAmount, setFineAmount] = React.useState<number | "">("");
+  const [rewardAmount, setRewardAmount] = React.useState<number | "">("");
+  const [alertEmails, setAlertEmails] = React.useState<string[]>([]);
+  const [alertSubject, setAlertSubject] = React.useState("");
+  const [alertBody, setAlertBody] = React.useState("");
+  const [availableEmails, setAvailableEmails] = React.useState<string[]>([]);
   const [yearlyGoalCount, setYearlyGoalCount] = React.useState<number | "">("");
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
   const [allowedOutOfControlMisses, setAllowedOutOfControlMisses] = React.useState<number | "">(""); // New state for allowed misses
   const [hintText, setHintText] = React.useState(""); // New state for hint text
+  const [dayType, setDayType] = React.useState<DayType>("hard");
+  const [allowTemporaryHold, setAllowTemporaryHold] = React.useState(false);
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
@@ -68,6 +68,26 @@ const HabitSetup: React.FC = () => {
     fetchHabits();
   }, [fetchHabits]);
 
+  // The accountability emails defined on the Settings page are the only ones a
+  // habit can be pointed at.
+  React.useEffect(() => {
+    const fetchAccountabilityEmails = async () => {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('settings_data')
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error("Error fetching accountability emails:", error);
+        return;
+      }
+      const emails = data?.settings_data?.accountability_emails;
+      setAvailableEmails(Array.isArray(emails) ? emails : []);
+    };
+    fetchAccountabilityEmails();
+  }, []);
+
   // Effect to scroll to the last edited habit after re-render
   React.useEffect(() => {
     if (habitToScrollRef.current) {
@@ -87,12 +107,18 @@ const HabitSetup: React.FC = () => {
     setHabitColor("#4F46E5");
     setTempTrackingValues([]);
     setTrackingValueInput("");
-    setFrequencyConditions([{ trackingValue: "", frequency: "weekly", count: "" }]);
+    setFrequencyConditions([emptyCondition()]);
     setFineAmount("");
+    setRewardAmount("");
+    setAlertEmails([]);
+    setAlertSubject("");
+    setAlertBody("");
     setYearlyGoalCount("");
     setContributingValues([]);
     setAllowedOutOfControlMisses(""); // Reset new field
     setHintText(""); // Reset new field
+    setDayType("hard");
+    setAllowTemporaryHold(false);
   };
 
   const handleAddNewTrackingValue = () => {
@@ -115,26 +141,6 @@ const HabitSetup: React.FC = () => {
     setContributingValues((prev) => prev.filter((value) => value !== valueToRemove));
   };
 
-  const handleFrequencyChange = (index: number, field: keyof FrequencyConditionInput, value: string | number) => {
-    setFrequencyConditions((prev) =>
-      prev.map((condition, i) =>
-        i === index ? { ...condition, [field]: value } : condition
-      )
-    );
-  };
-
-  const addFrequencyCondition = () => {
-    if (frequencyConditions.length < MAX_FREQUENCY_CONDITIONS) {
-      setFrequencyConditions((prev) => [...prev, { trackingValue: "", frequency: "weekly", count: "" }]);
-    } else {
-      showError(`Maximum of ${MAX_FREQUENCY_CONDITIONS} frequency conditions reached.`);
-    }
-  };
-
-  const removeFrequencyCondition = (indexToRemove: number) => {
-    setFrequencyConditions((prev) => prev.filter((_, i) => i !== indexToRemove));
-  };
-
   const handleContributingValueChange = (value: string, isChecked: boolean) => {
     setContributingValues((prev) =>
       isChecked ? [...prev, value] : prev.filter((v) => v !== value)
@@ -153,14 +159,20 @@ const HabitSetup: React.FC = () => {
       tracking_values: tempTrackingValues,
       frequency_conditions: frequencyConditions
         .filter(cond => cond.trackingValue && cond.count !== "")
-        .map(cond => ({ ...cond, count: Number(cond.count) as number })),
+        .map(cond => ({ ...cond, count: Number(cond.count) })),
       fine_amount: typeof fineAmount === 'number' ? fineAmount : 0,
+      reward_amount: typeof rewardAmount === 'number' ? rewardAmount : 0,
+      alert_emails: alertEmails,
+      alert_subject: alertSubject.trim(),
+      alert_body: alertBody.trim(),
       yearly_goal: {
         count: typeof yearlyGoalCount === 'number' ? yearlyGoalCount : 0,
         contributingValues: contributingValues,
       },
       allowed_out_of_control_misses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0,
       hint_text: hintText.trim(),
+      day_type: dayType,
+      allow_temporary_hold: allowTemporaryHold,
     };
 
     setIsLoading(true);
@@ -189,16 +201,23 @@ const HabitSetup: React.FC = () => {
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
-    const { id, name, color, trackingValues, frequencyConditions, fineAmount, yearlyGoal, allowedOutOfControlMisses, hintText, created_at } = updatedHabit;
+    const { id, name, color, trackingValues, frequencyConditions, fineAmount, rewardAmount, alertEmails: habitAlertEmails, alertSubject: habitAlertSubject, alertBody: habitAlertBody, yearlyGoal, allowedOutOfControlMisses, hintText, dayType, allowTemporaryHold, isDeactivated, created_at } = updatedHabit;
     const updatedHabitData = {
       name,
       color,
       tracking_values: trackingValues,
       frequency_conditions: frequencyConditions,
       fine_amount: fineAmount,
+      reward_amount: rewardAmount,
+      alert_emails: habitAlertEmails,
+      alert_subject: habitAlertSubject,
+      alert_body: habitAlertBody,
       yearly_goal: yearlyGoal,
       allowed_out_of_control_misses: allowedOutOfControlMisses,
       hint_text: hintText,
+      day_type: dayType,
+      allow_temporary_hold: allowTemporaryHold,
+      is_deactivated: isDeactivated,
       created_at,
     };
 
@@ -346,6 +365,16 @@ const HabitSetup: React.FC = () => {
           />
           <p className="text-xs text-gray-500 mt-1 text-left">A short reminder for this habit, displayed on the Daily Entries page.</p>
         </div>
+        {/* Day Type + Temporary Hold */}
+        <div className="w-full max-w-sm flex flex-col gap-4">
+          <HabitDayTypeFields
+            idSuffix="new"
+            dayType={dayType}
+            onDayTypeChange={setDayType}
+            allowTemporaryHold={allowTemporaryHold}
+            onAllowTemporaryHoldChange={setAllowTemporaryHold}
+          />
+        </div>
         {/* Color Picker Input */}
         <div className="w-full max-w-sm">
           <label htmlFor="habit-color" className="block text-sm font-medium text-gray-700 text-left">Assign a Color</label>
@@ -396,69 +425,25 @@ const HabitSetup: React.FC = () => {
           </div>
         </div>
 
-        {/* Tracking Frequency Section */}
-        <div className="w-full max-w-lg text-left">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Tracking Frequency</label>
-          <div id="frequency-container" className="flex flex-col gap-4">
-            {frequencyConditions.map((condition, index) => (
-              <div key={index} className="flex items-center gap-4">
-                <select
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-value-select text-gray-900 bg-white"
-                  value={condition.trackingValue}
-                  onChange={(e) => handleFrequencyChange(index, "trackingValue", e.target.value)}
-                >
-                  <option value="" disabled>Select tracking value</option>
-                  {tempTrackingValues.map((value, idx) => (
-                    <option key={idx} value={value}>{value}</option>
-                  ))}
-                </select>
-                <select
-                  className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={condition.frequency}
-                  onChange={(e) => handleFrequencyChange(index, "frequency", e.target.value as "weekly" | "monthly")}
-                >
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
-                <input
-                  type="number"
-                  placeholder="Number"
-                  className="w-28 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 numeric-value"
-                  value={condition.count}
-                  onChange={(e) => handleFrequencyChange(index, "count", e.target.value === "" ? "" : Number(e.target.value))}
-                />
-                {frequencyConditions.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeFrequencyCondition(index)}
-                    className="text-red-500 hover:text-red-700 focus:outline-none p-2 rounded-full hover:bg-red-100"
-                    aria-label="Remove frequency condition"
-                  >
-                    &times;
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          <button
-            id="add-frequency-button"
-            className="mt-4 w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-            onClick={addFrequencyCondition}
-          >
-            + Add Another Frequency
-          </button>
-        </div>
-
-        {/* Fine Amount Section */}
-        <div className="w-full max-w-sm">
-          <label htmlFor="fine-amount" className="block text-sm font-medium text-gray-700 text-left">Fine Amount</label>
-          <input
-            type="number"
-            id="fine-amount"
-            placeholder="Enter amount in Rupees"
-            className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
-            value={fineAmount}
-            onChange={(e) => setFineAmount(e.target.value === "" ? "" : Number(e.target.value))}
+        {/* Conditions, Fine and Reward */}
+        <div className="w-full max-w-lg flex flex-col gap-4">
+          <HabitConditionsEditor
+            idSuffix="new"
+            trackingValues={tempTrackingValues}
+            conditions={frequencyConditions}
+            onConditionsChange={setFrequencyConditions}
+            fineAmount={fineAmount}
+            onFineAmountChange={setFineAmount}
+            rewardAmount={rewardAmount}
+            onRewardAmountChange={setRewardAmount}
+            availableEmails={availableEmails}
+            alertEmails={alertEmails}
+            onAlertEmailsChange={setAlertEmails}
+            alertSubject={alertSubject}
+            onAlertSubjectChange={setAlertSubject}
+            alertBody={alertBody}
+            onAlertBodyChange={setAlertBody}
+            onError={showError}
           />
         </div>
 
@@ -557,6 +542,7 @@ const HabitSetup: React.FC = () => {
         onClose={() => setIsEditModalOpen(false)}
         initialHabit={habitToEdit}
         onSave={handleSaveEditedHabit}
+        availableEmails={availableEmails}
       />
     </div>
   );

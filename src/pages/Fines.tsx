@@ -22,6 +22,7 @@ interface FinesStatusRow {
   habit_id: string;
   entry_date: string | null;
   created_at: string;
+  is_auto: boolean | null;
 }
 
 const Fines: React.FC = () => {
@@ -67,6 +68,7 @@ const Fines: React.FC = () => {
           : null,
         date: row.entry_date || format(new Date(row.created_at), 'yyyy-MM-dd'),
         created_at: row.created_at,
+        isAuto: row.is_auto === true,
       }));
       setEntries(mapped);
     }
@@ -175,7 +177,14 @@ const Fines: React.FC = () => {
               }`}
             >
               <div>
-                <p className="font-medium text-gray-800">{entry.description}</p>
+                <p className="font-medium text-gray-800">
+                  {entry.isAuto && (
+                    <span className="mr-2 align-middle bg-gray-200 text-gray-700 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded">
+                      Auto
+                    </span>
+                  )}
+                  {entry.description}
+                </p>
                 <p className="text-xs text-gray-500">
                   {format(new Date(entry.date), 'MMM dd, yyyy')}
                   {entry.habitName ? ` · ${entry.habitName}` : ''}
