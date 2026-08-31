@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { Habit } from "@/types/habit";
-import { isSentinelTracking } from "@/utils/dayType";
+import { isSentinelTracking, TEMP_HOLD } from "@/utils/dayType";
 import {
   HabitCondition,
   periodRangeFor,
@@ -50,6 +50,25 @@ const countTrackingsInRange = async (
     if (isSentinelTracking(record.tracked_values)) return total;
     return total + (record.tracked_values || []).filter(v => v === trackingValue).length;
   }, 0);
+};
+
+/** Whether the habit was on temporary hold on any day in the window. */
+const hasHoldInRange = async (habitId: string, start: string, end: string): Promise<boolean> => {
+  const { data, error } = await supabase
+    .from('daily_habit_tracking')
+    .select('tracked_values')
+    .eq('habit_id', habitId)
+    .gte('date', start)
+    .lte('date', end);
+
+  if (error) {
+    console.error("Error checking temporary holds:", error);
+    return false;
+  }
+
+  return (data || []).some((record: { tracked_values: string[] }) =>
+    (record.tracked_values || []).includes(TEMP_HOLD)
+  );
 };
 
 const sendAccountabilityEmail = async (
@@ -134,8 +153,9 @@ export const runConditionsForHabit = async (
   habit: Habit,
   date: string,
 ): Promise<ConditionOutcomeSummary[]> => {
-  // Tracker-only habits are recorded but never judged.
-  if (habit.isTrackerOnly) return [];
+  // Tracker-only habits are recorded but never judged, and a retired habit
+  // stops accruing anything from the moment it is deactivated.
+  if (habit.isTrackerOnly || habit.isDeactivated) return [];
 
   const results: ConditionOutcomeSummary[] = [];
   const conditions: HabitCondition[] = habit.frequencyConditions || [];
@@ -149,7 +169,15 @@ export const runConditionsForHabit = async (
     const actualCount = await countTrackingsInRange(
       habit.id, condition.trackingValue, period.start, period.end,
     );
-    const isMet = evaluateOperator(actualCount, condition.operator, condition.count);
+    let isMet = evaluateOperator(actualCount, condition.operator, condition.count);
+
+    // A temporary hold can never produce a fine. Held days are already left out
+    // of the count, but on a "not enough" condition (<, <=, ==) that lowered
+    // count is exactly what trips the fine — so exempt the period outright.
+    // Rewards are unaffected.
+    if (isMet && condition.outcome === 'fine' && await hasHoldInRange(habit.id, period.start, period.end)) {
+      isMet = false;
+    }
 
     const { data: existingRow } = await supabase
       .from('fines_status')
@@ -236,18 +264,20 @@ const runOutOfControlMissForHabit = async (
   habit: Habit,
   date: string,
 ): Promise<ConditionOutcomeSummary[]> => {
-  if (habit.isTrackerOnly || !habit.oocMissTriggersEmail) return [];
+  if (habit.isTrackerOnly || habit.isDeactivated || !habit.oocMissTriggersEmail) return [];
 
   const key = `${AUTO_PREFIX}:${habit.id}:OOC:${date}`;
 
   const { data: tracking } = await supabase
     .from('daily_habit_tracking')
-    .select('is_out_of_control_miss')
+    .select('is_out_of_control_miss, tracked_values')
     .eq('habit_id', habit.id)
     .eq('date', date)
     .maybeSingle();
 
-  const isMiss = tracking?.is_out_of_control_miss === true;
+  // A held day is never fined, so it can't be an out-of-control miss either.
+  const isHeld = (tracking?.tracked_values || []).includes(TEMP_HOLD);
+  const isMiss = !isHeld && tracking?.is_out_of_control_miss === true;
 
   const { data: existingRow } = await supabase
     .from('fines_status')

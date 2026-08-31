@@ -22,8 +22,10 @@ import {
   DAY_TYPE_LABELS,
   isHabitActiveOnDayType,
   isSentinelTracking,
+  hasRealTrackedValue,
   WEEK_OFF,
   TEMP_HOLD,
+  DIFFICULTY_SKIP,
 } from "@/utils/dayType";
 
 interface DailyEntriesProps {
@@ -526,9 +528,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     visibleHabits.forEach((habit) => {
       const untrackedDates = activeDates.filter(date => {
         const record = dailyTracking[date]?.[habit.id];
-        const hasValue = !!record && Array.isArray(record.trackedValues) && record.trackedValues.length > 0;
-        const isMissMarked = !!record && record.isOutOfControlMiss === true;
-        return !hasValue && !isMissMarked;
+        const values = record?.trackedValues;
+        // A week off or a temporary hold counts as handled; a stale skip marker
+        // from a harder day does not — this habit is required today.
+        const isHandled = hasRealTrackedValue(values)
+          || !!values?.includes(WEEK_OFF)
+          || !!values?.includes(TEMP_HOLD);
+        return !isHandled && record?.isOutOfControlMiss !== true;
       });
       if (untrackedDates.length > 0) {
         missingHabits.push(
@@ -608,6 +614,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       }
     }
 
+    // Habits the day's difficulty excused get an explicit marker, so the date
+    // reads as "not required today" instead of looking like a missing record.
+    await recordDifficultySkips();
+
     setEntryIdsByDate(newIds);
     showSuccess(activeDates.length > 1 ? `Saved ${activeDates.length} daily entries!` : "Daily entry saved!");
 
@@ -641,6 +651,59 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
     }, 1200);
+  };
+
+  /**
+   * Marks every habit that this day's difficulty excused with DIFFICULTY_SKIP.
+   * A habit that already carries a real tracked value or an out-of-control miss
+   * for that date is left alone — dropping the difficulty of a day should not
+   * erase work already recorded against it.
+   */
+  const recordDifficultySkips = async () => {
+    const visibleIds = new Set(visibleHabits.map(h => h.id));
+    const skippedHabits = activeHabits.filter(h => !visibleIds.has(h.id));
+    if (skippedHabits.length === 0) return;
+
+    const records: {
+      date: string; habit_id: string; tracked_values: string[]; is_out_of_control_miss: boolean;
+    }[] = [];
+
+    for (const date of activeDates) {
+      for (const habit of skippedHabits) {
+        const existing = dailyTracking[date]?.[habit.id];
+        if (hasRealTrackedValue(existing?.trackedValues) || existing?.isOutOfControlMiss) continue;
+        if (existing?.trackedValues?.includes(WEEK_OFF)) continue;
+        records.push({
+          date,
+          habit_id: habit.id,
+          tracked_values: [DIFFICULTY_SKIP],
+          is_out_of_control_miss: false,
+        });
+      }
+    }
+
+    if (records.length === 0) return;
+
+    const { error } = await supabase
+      .from('daily_habit_tracking')
+      .upsert(records, { onConflict: 'date,habit_id' });
+
+    if (error) {
+      console.error("Error recording difficulty skips:", error);
+      showError("Saved, but failed to mark the habits skipped for this day type.");
+      return;
+    }
+
+    setDailyTracking(prev => {
+      const next = { ...prev };
+      records.forEach(({ date, habit_id }) => {
+        next[date] = {
+          ...(next[date] || {}),
+          [habit_id]: { trackedValues: [DIFFICULTY_SKIP], isOutOfControlMiss: false },
+        };
+      });
+      return next;
+    });
   };
 
   const handleConfirmOverwrite = () => {
@@ -1055,6 +1118,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         {dayType && hiddenHabitsCount > 0 && (
           <p className="mt-2 text-xs text-gray-500">
             {hiddenHabitsCount} habit{hiddenHabitsCount === 1 ? "" : "s"} hidden — not required on a {DAY_TYPE_LABELS[dayType].toLowerCase()}.
+            {" "}They'll be recorded as "not required" for {activeDates.length > 1 ? "these dates" : "this date"} when you save.
           </p>
         )}
       </div>

@@ -27,6 +27,15 @@ export const isHabitActiveOnDayType = (habitDayType: DayType, dayType: DayType |
 // for "not tracked on purpose" and must never be counted as real trackings.
 export const WEEK_OFF = "WEEK_OFF";
 export const TEMP_HOLD = "TEMP_HOLD";
+// Written for habits that the day's difficulty excused, so the date reads as
+// "not required today" rather than as a gap in the record.
+export const DIFFICULTY_SKIP = "DIFFICULTY_SKIP";
+
+const SENTINELS = [WEEK_OFF, TEMP_HOLD, DIFFICULTY_SKIP];
 
 export const isSentinelTracking = (trackedValues: string[] | null | undefined): boolean =>
-  !!trackedValues && (trackedValues.includes(WEEK_OFF) || trackedValues.includes(TEMP_HOLD));
+  !!trackedValues && trackedValues.some(v => SENTINELS.includes(v));
+
+/** True when the record holds a real tracked value rather than a deliberate skip. */
+export const hasRealTrackedValue = (trackedValues: string[] | null | undefined): boolean =>
+  !!trackedValues && trackedValues.length > 0 && !isSentinelTracking(trackedValues);

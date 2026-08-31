@@ -6,7 +6,7 @@ import { showSuccess, showError } from '@/utils/toast';
 import { Habit } from '@/types/habit';
 import { YearlyOutOfControlMissCount } from '@/types/tracking';
 import { Switch } from "@/components/ui/switch";
-import { DAY_TYPE_LABELS, WEEK_OFF, TEMP_HOLD } from '@/utils/dayType';
+import { DAY_TYPE_LABELS, WEEK_OFF, TEMP_HOLD, hasRealTrackedValue } from '@/utils/dayType';
 import { evaluateOperator } from '@/utils/habitConditions';
 import { activeTrackingValues } from '@/utils/habitUtils';
 
@@ -59,12 +59,12 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   const isHeld = (date: string) => valuesFor(date).includes(TEMP_HOLD);
   const selectedValueFor = (date: string) => {
     const values = valuesFor(date);
-    if (values.length === 0 || values.includes(WEEK_OFF) || values.includes(TEMP_HOLD)) return null;
-    return values[0];
+    return hasRealTrackedValue(values) ? values[0] : null;
   };
 
   const allWeekOff = dates.every(isWeekOff);
   const allHeld = dates.length > 0 && dates.every(isHeld);
+  const anyHeld = dates.some(isHeld);
 
   // Fine/warning message for the habit as a whole, based on the period counts.
   const fineOrWarningMessage = React.useMemo(() => {
@@ -85,6 +85,8 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
       const period = condition.frequency === 'weekly' ? 'week' : 'month';
 
       if (!evaluateOperator(actualCount, condition.operator, condition.count)) return;
+      // A temporary hold exempts the period from fines entirely.
+      if (condition.outcome === 'fine' && anyHeld) return;
 
       const detail =
         `'${condition.trackingValue}' is at ${actualCount} this ${period} ` +
@@ -108,7 +110,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     }
 
     return fines[0] || rewards[0] || warnings[0] || null;
-  }, [habit, weeklyTrackingCounts, monthlyTrackingCounts, allowedMisses, usedMisses, allWeekOff, allHeld]);
+  }, [habit, weeklyTrackingCounts, monthlyTrackingCounts, allowedMisses, usedMisses, allWeekOff, allHeld, anyHeld]);
 
   const handleValueClick = async (date: string, value: string) => {
     if (isWeekOff(date)) {
