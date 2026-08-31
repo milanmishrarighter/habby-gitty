@@ -10,14 +10,15 @@ import { Habit } from "@/types/habit";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
 import HabitDayTypeFields from "@/components/HabitDayTypeFields";
+import { Switch } from "@/components/ui/switch";
 import { DayType } from "@/utils/dayType";
 import HabitConditionsEditor, { ConditionInput, emptyCondition } from "@/components/HabitConditionsEditor";
+import TrackingValuesEditor from "@/components/TrackingValuesEditor";
 
 const HabitSetup: React.FC = () => {
   const [habitName, setHabitName] = React.useState("");
   const [habitColor, setHabitColor] = React.useState("#4F46E5");
   const [tempTrackingValues, setTempTrackingValues] = React.useState<string[]>([]);
-  const [trackingValueInput, setTrackingValueInput] = React.useState("");
   const [frequencyConditions, setFrequencyConditions] = React.useState<ConditionInput[]>([emptyCondition()]);
   const [fineAmount, setFineAmount] = React.useState<number | "">("");
   const [rewardAmount, setRewardAmount] = React.useState<number | "">("");
@@ -25,6 +26,10 @@ const HabitSetup: React.FC = () => {
   const [alertSubject, setAlertSubject] = React.useState("");
   const [alertBody, setAlertBody] = React.useState("");
   const [availableEmails, setAvailableEmails] = React.useState<string[]>([]);
+  const [archivedTrackingValues, setArchivedTrackingValues] = React.useState<string[]>([]);
+  const [oocMissTriggersEmail, setOocMissTriggersEmail] = React.useState(false);
+  const [oocMissFineAmount, setOocMissFineAmount] = React.useState<number | "">("");
+  const [isTrackerOnly, setIsTrackerOnly] = React.useState(false);
   const [yearlyGoalCount, setYearlyGoalCount] = React.useState<number | "">("");
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
   const [allowedOutOfControlMisses, setAllowedOutOfControlMisses] = React.useState<number | "">(""); // New state for allowed misses
@@ -106,7 +111,6 @@ const HabitSetup: React.FC = () => {
     setHabitName("");
     setHabitColor("#4F46E5");
     setTempTrackingValues([]);
-    setTrackingValueInput("");
     setFrequencyConditions([emptyCondition()]);
     setFineAmount("");
     setRewardAmount("");
@@ -119,26 +123,10 @@ const HabitSetup: React.FC = () => {
     setHintText(""); // Reset new field
     setDayType("hard");
     setAllowTemporaryHold(false);
-  };
-
-  const handleAddNewTrackingValue = () => {
-    const value = trackingValueInput.trim();
-    if (value !== "" && !tempTrackingValues.includes(value)) {
-      setTempTrackingValues((prev) => [...prev, value]);
-      setTrackingValueInput("");
-    }
-  };
-
-  const handleTrackingValueKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault(); // Prevent form submission if this input is part of a form
-      handleAddNewTrackingValue();
-    }
-  };
-
-  const removeTrackingValue = (valueToRemove: string) => {
-    setTempTrackingValues((prev) => prev.filter((value) => value !== valueToRemove));
-    setContributingValues((prev) => prev.filter((value) => value !== valueToRemove));
+    setArchivedTrackingValues([]);
+    setOocMissTriggersEmail(false);
+    setOocMissFineAmount("");
+    setIsTrackerOnly(false);
   };
 
   const handleContributingValueChange = (value: string, isChecked: boolean) => {
@@ -173,6 +161,10 @@ const HabitSetup: React.FC = () => {
       hint_text: hintText.trim(),
       day_type: dayType,
       allow_temporary_hold: allowTemporaryHold,
+      archived_tracking_values: archivedTrackingValues,
+      ooc_miss_triggers_email: oocMissTriggersEmail,
+      ooc_miss_fine_amount: typeof oocMissFineAmount === 'number' ? oocMissFineAmount : 0,
+      is_tracker_only: isTrackerOnly,
     };
 
     setIsLoading(true);
@@ -218,6 +210,10 @@ const HabitSetup: React.FC = () => {
       day_type: dayType,
       allow_temporary_hold: allowTemporaryHold,
       is_deactivated: isDeactivated,
+      archived_tracking_values: updatedHabit.archivedTrackingValues,
+      ooc_miss_triggers_email: updatedHabit.oocMissTriggersEmail,
+      ooc_miss_fine_amount: updatedHabit.oocMissFineAmount,
+      is_tracker_only: updatedHabit.isTrackerOnly,
       created_at,
     };
 
@@ -386,50 +382,38 @@ const HabitSetup: React.FC = () => {
             className="mt-1 w-full h-10 p-1 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
-        {/* Tracking Values Input */}
+        {/* Tracking Values */}
         <div className="w-full max-w-sm">
-          <label htmlFor="tracking-values" className="block text-sm font-medium text-gray-700 text-left">Tracking Values</label>
-          <div className="flex gap-2 mt-1">
-            <input
-              type="text"
-              id="tracking-values"
-              placeholder="e.g., Water, 8 glasses"
-              className="p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
-              value={trackingValueInput}
-              onChange={(e) => setTrackingValueInput(e.target.value)}
-              onKeyDown={handleTrackingValueKeyDown}
-            />
-            <Button
-              type="button"
-              onClick={handleAddNewTrackingValue}
-              className="shrink-0"
-              disabled={!trackingValueInput.trim()}
-            >
-              Add
-            </Button>
-          </div>
-          <p className="text-xs text-gray-500 mt-1 text-left">Press Enter or click 'Add' to save a value.</p>
-          <div id="tracking-values-container" className="mt-2 flex flex-wrap gap-2 text-left">
-            {tempTrackingValues.map((value, index) => (
-              <span key={index} className="bg-blue-200 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded-full flex items-center space-x-1">
-                {value}
-                <button
-                  type="button"
-                  onClick={() => removeTrackingValue(value)}
-                  className="ml-1 text-blue-800 hover:text-blue-900 focus:outline-none"
-                >
-                  &times;
-                </button>
-              </span>
-            ))}
-          </div>
+          <TrackingValuesEditor
+            idSuffix="new"
+            values={tempTrackingValues}
+            archivedValues={archivedTrackingValues}
+            onChange={(values, archived) => {
+              setTempTrackingValues(values);
+              setArchivedTrackingValues(archived);
+              setContributingValues(prev => prev.filter(v => values.includes(v)));
+            }}
+          />
+        </div>
+
+        {/* Tracker-only toggle, immediately before the conditions it disables */}
+        <div className="w-full max-w-lg flex items-center justify-between gap-4 text-left p-3 rounded-lg border border-gray-200 bg-gray-50">
+          <label htmlFor="tracker-only-new" className="flex-grow text-sm font-medium text-gray-800 cursor-pointer">
+            Only tracker habit
+            <p className="text-xs text-gray-600 mt-1">
+              Just records what happened — no conditions, fines, rewards or out-of-control misses.
+              Use it for things you want to observe rather than improve.
+            </p>
+          </label>
+          <Switch id="tracker-only-new" checked={isTrackerOnly} onCheckedChange={setIsTrackerOnly} />
         </div>
 
         {/* Conditions, Fine and Reward */}
+        {!isTrackerOnly && (
         <div className="w-full max-w-lg flex flex-col gap-4">
           <HabitConditionsEditor
             idSuffix="new"
-            trackingValues={tempTrackingValues}
+            trackingValues={tempTrackingValues.filter(v => !archivedTrackingValues.includes(v))}
             conditions={frequencyConditions}
             onConditionsChange={setFrequencyConditions}
             fineAmount={fineAmount}
@@ -446,8 +430,10 @@ const HabitSetup: React.FC = () => {
             onError={showError}
           />
         </div>
+        )}
 
         {/* Allowed Out-of-Control Misses Section */}
+        {!isTrackerOnly && (
         <div className="w-full max-w-sm">
           <label htmlFor="allowed-misses" className="block text-sm font-medium text-gray-700 text-left">Allowed Yearly Out-of-Control Misses</label>
           <input
@@ -459,7 +445,36 @@ const HabitSetup: React.FC = () => {
             onChange={(e) => setAllowedOutOfControlMisses(e.target.value === "" ? "" : Number(e.target.value))}
           />
           <p className="text-xs text-gray-500 mt-1 text-left">Number of times you can mark a miss as "out of control" per year without incurring a fine.</p>
+
+          <label htmlFor="ooc-email-new" className="flex items-center gap-2 mt-3 text-sm font-medium text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              id="ooc-email-new"
+              className="form-checkbox rounded text-blue-600 focus:ring-blue-500 focus:ring-2 h-4 w-4"
+              checked={oocMissTriggersEmail}
+              onChange={(e) => setOocMissTriggersEmail(e.target.checked)}
+            />
+            Trigger email even when out-of-control miss happens
+          </label>
+
+          {oocMissTriggersEmail && (
+            <div className="mt-2">
+              <label htmlFor="ooc-fine-new" className="block text-xs font-medium text-gray-600 text-left">Fine per out-of-control miss (₹)</label>
+              <input
+                type="number"
+                id="ooc-fine-new"
+                placeholder="e.g., 200"
+                className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full"
+                value={oocMissFineAmount}
+                onChange={(e) => setOocMissFineAmount(e.target.value === "" ? "" : Number(e.target.value))}
+              />
+              <p className="text-xs text-gray-500 mt-1 text-left">
+                Uses the same recipients and message as the fine section above.
+              </p>
+            </div>
+          )}
         </div>
+        )}
 
         {/* Yearly Goals Section */}
         <div className="w-full max-w-sm text-left">
@@ -480,7 +495,7 @@ const HabitSetup: React.FC = () => {
           <div className="mt-4">
             <label className="block text-xs font-medium text-gray-500">Contributing Values</label>
             <div id="contributing-values-container" className="mt-2 flex flex-wrap gap-2 text-left">
-              {tempTrackingValues.map((value, index) => (
+              {tempTrackingValues.filter(v => !archivedTrackingValues.includes(v)).map((value, index) => (
                 <label key={index} className="inline-flex items-center space-x-2 bg-gray-100 px-4 py-2 rounded-full text-sm font-medium text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"

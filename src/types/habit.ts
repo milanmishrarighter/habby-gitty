@@ -17,6 +17,10 @@ export interface Habit {
     contributingValues: string[];
   };
   allowedOutOfControlMisses: number; // New field for yearly allowed misses
+  oocMissTriggersEmail: boolean; // Email the accountability contacts on a miss
+  oocMissFineAmount: number; // Fine charged per out-of-control miss
+  isTrackerOnly: boolean; // Recorded but never fined, rewarded or judged
+  archivedTrackingValues: string[]; // Retired values, hidden from new entries
   hintText?: string; // New field for hint text
   dayType: DayType; // Which day types this habit is required on
   allowTemporaryHold: boolean; // Whether this habit may be put on temporary hold

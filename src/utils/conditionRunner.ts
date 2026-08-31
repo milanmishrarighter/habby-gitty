@@ -54,7 +54,6 @@ const countTrackingsInRange = async (
 
 const sendAccountabilityEmail = async (
   habit: Habit,
-  condition: HabitCondition,
   vars: Record<string, string | number>,
   alertKey: string,
   periodKey: string,
@@ -135,6 +134,9 @@ export const runConditionsForHabit = async (
   habit: Habit,
   date: string,
 ): Promise<ConditionOutcomeSummary[]> => {
+  // Tracker-only habits are recorded but never judged.
+  if (habit.isTrackerOnly) return [];
+
   const results: ConditionOutcomeSummary[] = [];
   const conditions: HabitCondition[] = habit.frequencyConditions || [];
 
@@ -199,7 +201,7 @@ export const runConditionsForHabit = async (
 
     let emailedTo: string[] = [];
     if (isFine) {
-      emailedTo = await sendAccountabilityEmail(habit, condition, {
+      emailedTo = await sendAccountabilityEmail(habit, {
         habit_name: habit.name,
         fine_amount: amount,
         tracking_value: condition.trackingValue,
@@ -222,7 +224,88 @@ export const runConditionsForHabit = async (
     });
   }
 
+  results.push(...await runOutOfControlMissForHabit(habit, date));
   return results;
+};
+
+/**
+ * An out-of-control miss on a habit configured for it carries its own fine and
+ * its own email, one per habit per date.
+ */
+const runOutOfControlMissForHabit = async (
+  habit: Habit,
+  date: string,
+): Promise<ConditionOutcomeSummary[]> => {
+  if (habit.isTrackerOnly || !habit.oocMissTriggersEmail) return [];
+
+  const key = `${AUTO_PREFIX}:${habit.id}:OOC:${date}`;
+
+  const { data: tracking } = await supabase
+    .from('daily_habit_tracking')
+    .select('is_out_of_control_miss')
+    .eq('habit_id', habit.id)
+    .eq('date', date)
+    .maybeSingle();
+
+  const isMiss = tracking?.is_out_of_control_miss === true;
+
+  const { data: existingRow } = await supabase
+    .from('fines_status')
+    .select('id')
+    .eq('tracking_value', key)
+    .maybeSingle();
+
+  if (!isMiss) {
+    // The miss was undone — withdraw the automatic fine.
+    if (existingRow) {
+      await supabase.from('fines_status').delete().eq('id', existingRow.id);
+    }
+    return [];
+  }
+
+  const amount = habit.oocMissFineAmount || 0;
+  const description = `Fine: '${habit.name}' — out-of-control miss on ${date}.`;
+
+  if (!existingRow) {
+    const { error } = await supabase.from('fines_status').insert([{
+      type: 'fine',
+      fine_amount: amount,
+      cause: description,
+      habit_id: habit.id,
+      entry_date: date,
+      status: 'unpaid',
+      period_key: date,
+      tracking_value: key,
+      condition_count: 0,
+      actual_count: 1,
+      is_auto: true,
+    }]);
+
+    if (error) {
+      console.error("Error recording out-of-control miss fine:", error);
+      return [];
+    }
+  } else {
+    await supabase
+      .from('fines_status')
+      .update({ fine_amount: amount, cause: description })
+      .eq('id', existingRow.id);
+  }
+
+  const emailedTo = await sendAccountabilityEmail(habit, {
+    habit_name: habit.name,
+    fine_amount: amount,
+    tracking_value: "out-of-control miss",
+    operator: "",
+    condition_count: 0,
+    actual_count: 1,
+    frequency: "daily",
+    period: date,
+    date,
+    condition: "an out-of-control miss was recorded",
+  }, key, date);
+
+  return [{ habitName: habit.name, outcome: 'fine', amount, description, emailedTo }];
 };
 
 export const runConditionsForHabits = async (

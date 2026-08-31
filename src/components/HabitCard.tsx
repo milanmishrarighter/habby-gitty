@@ -43,15 +43,29 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
             Hold allowed
           </span>
         )}
+        {habit.isTrackerOnly && (
+          <span className="bg-sky-200 text-sky-900 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            Tracker only
+          </span>
+        )}
       </div>
 
       {(habit.trackingValues && habit.trackingValues.length > 0) && (
         <div className="flex flex-wrap gap-2 mt-2">
-          {habit.trackingValues.map((value, index) => (
-            <span key={index} className="bg-gray-200 text-gray-700 text-xs font-medium px-2.5 py-0.5 rounded-full">
-              {value}
-            </span>
-          ))}
+          {habit.trackingValues.map((value, index) => {
+            const isArchived = (habit.archivedTrackingValues || []).includes(value);
+            return (
+              <span
+                key={index}
+                className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${
+                  isArchived ? "bg-gray-100 text-gray-400 line-through" : "bg-gray-200 text-gray-700"
+                }`}
+                title={isArchived ? "Archived — hidden from new entries" : undefined}
+              >
+                {value}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -90,6 +104,12 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
 
       {habit.allowedOutOfControlMisses > 0 && (
         <p className="mt-2 text-sm text-gray-600">Allowed Out-of-Control Misses (Yearly): {habit.allowedOutOfControlMisses}</p>
+      )}
+
+      {habit.oocMissTriggersEmail && (
+        <p className="mt-1 text-sm text-red-600 text-left">
+          Out-of-control miss: ₹{habit.oocMissFineAmount} + email
+        </p>
       )}
 
       {(habit.yearlyGoal && habit.yearlyGoal.count > 0) && (

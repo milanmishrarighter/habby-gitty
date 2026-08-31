@@ -2,6 +2,10 @@ import { Habit } from "@/types/habit";
 import { DayType } from "@/utils/dayType";
 import { normalizeCondition } from "@/utils/habitConditions";
 
+/** Tracking values still offered for new entries (archived ones excluded). */
+export const activeTrackingValues = (habit: Habit): string[] =>
+  (habit.trackingValues || []).filter(v => !(habit.archivedTrackingValues || []).includes(v));
+
 export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
   return {
     id: supabaseHabit.id,
@@ -19,6 +23,12 @@ export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
       contributingValues: supabaseHabit.yearly_goal?.contributingValues || [],
     },
     allowedOutOfControlMisses: supabaseHabit.allowed_out_of_control_misses || 0, // Map new field
+    oocMissTriggersEmail: supabaseHabit.ooc_miss_triggers_email ?? false,
+    oocMissFineAmount: supabaseHabit.ooc_miss_fine_amount || 0,
+    isTrackerOnly: supabaseHabit.is_tracker_only ?? false,
+    archivedTrackingValues: Array.isArray(supabaseHabit.archived_tracking_values)
+      ? supabaseHabit.archived_tracking_values
+      : [],
     hintText: supabaseHabit.hint_text || '', // Map new field
     dayType: (supabaseHabit.day_type as DayType) || 'hard',
     allowTemporaryHold: supabaseHabit.allow_temporary_hold ?? false,

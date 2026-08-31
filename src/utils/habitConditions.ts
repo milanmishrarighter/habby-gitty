@@ -113,16 +113,12 @@ export const EMAIL_TAGS = [
   "{{condition}}",
 ] as const;
 
-export const DEFAULT_ALERT_SUBJECT = "Milan missed: {{habit_name}}";
+export const DEFAULT_ALERT_SUBJECT = "Milan Missed a Habit. He Needs to Pay Up!";
 
 export const DEFAULT_ALERT_BODY =
-  `Hi,\n\n` +
-  `This is an automated accountability note.\n\n` +
-  `Habit: {{habit_name}}\n` +
-  `Condition: {{condition}}\n` +
-  `Actual: {{tracking_value}} was tracked {{actual_count}} time(s) in {{period}}\n` +
-  `Fine incurred: Rs {{fine_amount}}\n\n` +
-  `Please hold me to it.\n`;
+  `Milan Missed his Habit Name:{{habit_name}}\n` +
+  `He Needs to Pay you: {{fine_amount}}\n\n` +
+  `Make Sure He Pays Up. You are his assigned Accountability Partner!\n`;
 
 export const renderTemplate = (template: string, vars: Record<string, string | number>): string =>
   template.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key: string) =>

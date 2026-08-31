@@ -8,6 +8,7 @@ import { YearlyOutOfControlMissCount } from '@/types/tracking';
 import { Switch } from "@/components/ui/switch";
 import { DAY_TYPE_LABELS, WEEK_OFF, TEMP_HOLD } from '@/utils/dayType';
 import { evaluateOperator } from '@/utils/habitConditions';
+import { activeTrackingValues } from '@/utils/habitUtils';
 
 export interface TrackingState {
   trackedValues: string[];
@@ -67,7 +68,8 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
 
   // Fine/warning message for the habit as a whole, based on the period counts.
   const fineOrWarningMessage = React.useMemo(() => {
-    if (allWeekOff || allHeld) return null;
+    // Tracker-only habits are never judged, so there is nothing to warn about.
+    if (habit.isTrackerOnly || allWeekOff || allHeld) return null;
 
     const warnings: string[] = [];
     const fines: string[] = [];
@@ -198,11 +200,11 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
           <p className="text-sm text-gray-600 italic text-left">On temporary hold — not counted.</p>
         ) : (
           <>
-            {(habit.trackingValues && habit.trackingValues.length > 0) && (
+            {activeTrackingValues(habit).length > 0 && (
               <>
                 {!isMultiDate && <p className="font-medium mb-1 text-left">Track for today:</p>}
                 <div className="flex flex-wrap gap-2">
-                  {habit.trackingValues.map((value) => (
+                  {activeTrackingValues(habit).map((value) => (
                     <div
                       key={value}
                       className={`cursor-pointer px-4 py-2 rounded-lg border-2 transition-all duration-200
@@ -223,7 +225,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
             )}
 
             {/* Out-of-Control Miss Toggle */}
-            {selectedTrackingValue === null && allowedMisses > 0 && (
+            {selectedTrackingValue === null && allowedMisses > 0 && !habit.isTrackerOnly && (
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
                 <label htmlFor={`out-of-control-miss-${habit.id}-${date}`} className="flex-grow text-sm font-medium text-gray-700 text-left cursor-pointer">
                   Mark as Out-of-Control Miss
