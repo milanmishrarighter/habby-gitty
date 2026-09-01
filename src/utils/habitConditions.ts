@@ -95,8 +95,106 @@ export const periodRangeFor = (date: string, frequency: ConditionFrequency): Per
   }
 };
 
+/**
+ * Whether a condition can be judged before its period is over.
+ *
+ * A count only ever grows as a period runs. So "more than N" and "at least N"
+ * are settled the moment they become true — no later day can undo them. Every
+ * other operator ("fewer than", "at most", "exactly") is only meaningful once
+ * the period has finished, because the count still has room to rise.
+ */
+export const isSettledEarly = (operator: ConditionOperator): boolean =>
+  operator === ">" || operator === ">=";
+
+/** The period immediately before the one containing `date`. */
+export const previousPeriodRangeFor = (date: string, frequency: ConditionFrequency): PeriodRange => {
+  const current = periodRangeFor(date, frequency);
+  const dayBefore = new Date(current.start);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  return periodRangeFor(format(dayBefore, 'yyyy-MM-dd'), frequency);
+};
+
 export const describeCondition = (condition: HabitCondition): string =>
   `'${condition.trackingValue}' ${condition.operator} ${condition.count} (${FREQUENCY_LABELS[condition.frequency].toLowerCase()})`;
+
+// --- Per-value status chips ------------------------------------------------
+
+export interface ValueStatus {
+  text: string;
+  tone: "reward" | "fine" | "neutral";
+}
+
+/**
+ * What this tracking value is worth right now: how many more are needed to earn
+ * a reward, and how many more can be afforded before a fine. Far more useful on
+ * the card than a raw week/month tally.
+ *
+ * Only weekly and monthly conditions are described, because those are the only
+ * counts the card is given.
+ */
+export const describeValueStatus = (
+  conditions: HabitCondition[],
+  value: string,
+  weeklyCount: number,
+  monthlyCount: number,
+): ValueStatus[] => {
+  const statuses: ValueStatus[] = [];
+
+  conditions.forEach(condition => {
+    if (condition.trackingValue !== value) return;
+    if (condition.frequency !== 'weekly' && condition.frequency !== 'monthly') return;
+
+    const actual = condition.frequency === 'weekly' ? weeklyCount : monthlyCount;
+    const period = condition.frequency === 'weekly' ? 'wk' : 'mo';
+    const isReward = condition.outcome === 'reward';
+    const tone = isReward ? 'reward' : 'fine';
+    const met = evaluateOperator(actual, condition.operator, condition.count);
+
+    switch (condition.operator) {
+      case '>=':
+      case '>': {
+        // Count has to climb to reach the target.
+        const target = condition.operator === '>' ? condition.count + 1 : condition.count;
+        const remaining = Math.max(0, target - actual);
+        if (isReward) {
+          statuses.push(remaining === 0
+            ? { text: `reward earned this ${period}`, tone: 'reward' }
+            : { text: `${remaining} more this ${period} → reward`, tone: 'reward' });
+        } else {
+          statuses.push(met
+            ? { text: `fined this ${period}`, tone: 'fine' }
+            : { text: `${remaining - 1} more allowed this ${period}`, tone: 'fine' });
+        }
+        break;
+      }
+      case '<':
+      case '<=': {
+        // Count has to reach a floor by the end of the period to stay safe.
+        const floor = condition.operator === '<' ? condition.count : condition.count + 1;
+        const remaining = Math.max(0, floor - actual);
+        if (isReward) {
+          statuses.push(met
+            ? { text: `reward if the ${period} ends here`, tone: 'reward' }
+            : { text: `too many for the reward this ${period}`, tone: 'neutral' });
+        } else {
+          statuses.push(remaining === 0
+            ? { text: `safe this ${period}`, tone: 'neutral' }
+            : { text: `need ${remaining} more this ${period} to avoid fine`, tone: 'fine' });
+        }
+        break;
+      }
+      case '==': {
+        const label = isReward ? 'reward' : 'fine';
+        statuses.push(met
+          ? { text: `exactly ${condition.count} → ${label} if the ${period} ends here`, tone }
+          : { text: `${actual}/${condition.count} this ${period} for ${label}`, tone: 'neutral' });
+        break;
+      }
+    }
+  });
+
+  return statuses;
+};
 
 // --- Email templating ------------------------------------------------------
 

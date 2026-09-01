@@ -7,7 +7,7 @@ import { Habit } from '@/types/habit';
 import { YearlyOutOfControlMissCount } from '@/types/tracking';
 import { Switch } from "@/components/ui/switch";
 import { DAY_TYPE_LABELS, WEEK_OFF, TEMP_HOLD, hasRealTrackedValue } from '@/utils/dayType';
-import { evaluateOperator } from '@/utils/habitConditions';
+import { evaluateOperator, isSettledEarly, describeValueStatus } from '@/utils/habitConditions';
 import { activeTrackingValues } from '@/utils/habitUtils';
 
 export interface TrackingState {
@@ -91,6 +91,16 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
       const detail =
         `'${condition.trackingValue}' is at ${actualCount} this ${period} ` +
         `(condition: ${condition.operator} ${condition.count})`;
+
+      // "Fewer than / at most / exactly" isn't decided until the period ends,
+      // so flag it as a trajectory rather than as something already incurred.
+      if (!isSettledEarly(condition.operator)) {
+        warnings.push(
+          `On track: ${detail}. If the ${period} ends here that's a ` +
+          `${condition.outcome} of ₹${(condition.outcome === 'reward' ? habit.rewardAmount : habit.fineAmount) || 0}.`
+        );
+        return;
+      }
 
       if (condition.outcome === 'reward') {
         rewards.push(`Reward: ${detail}. Worth ₹${habit.rewardAmount || 0} on save.`);
@@ -206,22 +216,44 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
               <>
                 {!isMultiDate && <p className="font-medium mb-1 text-left">Track for today:</p>}
                 <div className="flex flex-wrap gap-2">
-                  {activeTrackingValues(habit).map((value) => (
-                    <div
-                      key={value}
-                      className={`cursor-pointer px-4 py-2 rounded-lg border-2 transition-all duration-200
-                        ${selectedTrackingValue === value
-                          ? `bg-blue-100 border-blue-500 text-blue-800`
-                          : `bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200`
-                        }`}
-                      onClick={() => handleValueClick(date, value)}
-                    >
-                      {value}
-                      <span className="ml-2 text-xs text-gray-500">
-                        (W:{weeklyTrackingCounts[value] || 0}/M:{monthlyTrackingCounts[value] || 0})
-                      </span>
-                    </div>
-                  ))}
+                  {activeTrackingValues(habit).map((value) => {
+                    const statuses = habit.isTrackerOnly ? [] : describeValueStatus(
+                      habit.frequencyConditions || [],
+                      value,
+                      weeklyTrackingCounts[value] || 0,
+                      monthlyTrackingCounts[value] || 0,
+                    );
+
+                    return (
+                      <div
+                        key={value}
+                        className={`cursor-pointer px-4 py-2 rounded-lg border-2 transition-all duration-200
+                          ${selectedTrackingValue === value
+                            ? `bg-blue-100 border-blue-500 text-blue-800`
+                            : `bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200`
+                          }`}
+                        onClick={() => handleValueClick(date, value)}
+                      >
+                        <span>{value}</span>
+                        {statuses.length > 0 && (
+                          <span className="block mt-0.5 text-xs leading-tight">
+                            {statuses.map((status, i) => (
+                              <span
+                                key={i}
+                                className={`block ${
+                                  status.tone === 'reward' ? 'text-green-700'
+                                    : status.tone === 'fine' ? 'text-red-700'
+                                      : 'text-gray-500'
+                                }`}
+                              >
+                                {status.text}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             )}

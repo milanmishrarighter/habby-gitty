@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AppSettings } from "@/types/appSettings";
+import { CalorieSettings, EMPTY_CALORIE_SETTINGS } from "@/types/health";
+import { readCalorieSettings } from "@/utils/healthUtils";
 
 const Settings: React.FC = () => {
   const [yearlyWeekOffsAllowed, setYearlyWeekOffsAllowed] = React.useState<number | "">(0);
@@ -18,6 +20,7 @@ const Settings: React.FC = () => {
   const [appPassword, setAppPassword] = React.useState<string>("password"); // App password state
   const [accountabilityEmails, setAccountabilityEmails] = React.useState<string[]>([]);
   const [emailInput, setEmailInput] = React.useState("");
+  const [calorieSettings, setCalorieSettings] = React.useState<CalorieSettings>(EMPTY_CALORIE_SETTINGS);
 
   React.useEffect(() => {
     const fetchSettings = async () => {
@@ -40,6 +43,7 @@ const Settings: React.FC = () => {
         setAccountabilityEmails(
           Array.isArray(data.settings_data?.accountability_emails) ? data.settings_data.accountability_emails : []
         );
+        setCalorieSettings(readCalorieSettings(data.settings_data));
       }
       setIsLoading(false);
     };
@@ -90,6 +94,10 @@ const Settings: React.FC = () => {
       yearly_nothings_allowed: yearlyNothingsAllowed, // Save new field
       app_password: appPassword, // Save app password
       accountability_emails: accountabilityEmails,
+      target_calories: calorieSettings.target,
+      maintaining_calories: calorieSettings.maintaining,
+      cheat_day_calories: calorieSettings.cheatDay,
+      over_eating_calories: calorieSettings.overEating,
     };
 
     let error = null;
@@ -185,6 +193,43 @@ const Settings: React.FC = () => {
               This password is required to unlock the app after login.
             </p>
           </div>
+          <Button onClick={handleSaveSettings} disabled={isLoading}>
+            {isLoading ? "Saving..." : "Save Settings"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="w-full max-w-md mx-auto mt-6">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold">Calorie Levels</CardTitle>
+        </CardHeader>
+        <CardContent className="text-left">
+          {([
+            ["target", "Target Calories", "At or under this earns ₹50 for the day. Allowed 4 days a week."],
+            ["maintaining", "Maintaining Calories", "Allowed twice a week on non-cheat days."],
+            ["cheatDay", "Cheat Day Calories", "The ceiling on a day marked as a cheat day."],
+            ["overEating", "Over-eating Calories", "Anything above this counts as over-eating."],
+          ] as const).map(([key, label, hint]) => (
+            <div className="mb-4" key={key}>
+              <Label htmlFor={`calories-${key}`} className="block text-sm font-medium text-gray-700 mb-1">
+                {label}
+              </Label>
+              <Input
+                type="number"
+                id={`calories-${key}`}
+                placeholder="e.g., 1800"
+                value={calorieSettings[key] === 0 ? "" : calorieSettings[key]}
+                onChange={(e) => setCalorieSettings(prev => ({
+                  ...prev,
+                  [key]: e.target.value === "" ? 0 : Number(e.target.value),
+                }))}
+                min="0"
+                className="w-full"
+                disabled={isLoading}
+              />
+              <p className="text-xs text-gray-500 mt-1">{hint}</p>
+            </div>
+          ))}
           <Button onClick={handleSaveSettings} disabled={isLoading}>
             {isLoading ? "Saving..." : "Save Settings"}
           </Button>

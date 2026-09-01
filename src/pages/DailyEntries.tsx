@@ -16,6 +16,9 @@ import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { AppSettings } from "@/types/appSettings";
 import { runConditionsForHabits } from "@/utils/conditionRunner";
+import HealthCard from "@/components/HealthCard";
+import { DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord } from "@/types/health";
+import { readCalorieSettings, calorieTotals, calorieBandFor, summariseWeek, AllowanceUsage } from "@/utils/healthUtils";
 import {
   DayType,
   DAY_TYPES,
@@ -88,6 +91,11 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [isNothingButtonLoading, setIsNothingButtonLoading] = React.useState(false);
   const [missedDaysGap, setMissedDaysGap] = React.useState<number>(0);
   const missedFineAppliedForDateRef = React.useRef<string | null>(null);
+
+  // Health
+  const [healthRecord, setHealthRecord] = React.useState<DailyHealthRecord>(emptyHealthRecord(getTodayDate()));
+  const [calorieSettings, setCalorieSettings] = React.useState<CalorieSettings>(EMPTY_CALORIE_SETTINGS);
+  const [weekUsage, setWeekUsage] = React.useState<AllowanceUsage>({ targetDays: 0, maintainingDays: 0 });
 
   // --- Derived: which dates this entry covers -------------------------------
   const rangeError = React.useMemo(() => {
@@ -287,6 +295,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         showError("Failed to load app settings.");
       } else if (settingsData) {
         setAppSettings(settingsData as AppSettings);
+        setCalorieSettings(readCalorieSettings(settingsData.settings_data));
       }
     };
     fetchInitialData();
@@ -500,8 +509,31 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       }
     }
 
+    // Health: load the record for the summary date, plus the surrounding week so
+    // the target/maintaining allowances can be counted.
+    const { data: healthRows, error: healthError } = await supabase
+      .from('daily_health')
+      .select('*')
+      .gte('date', format(startOfWeek(new Date(lastDate), { weekStartsOn: 1 }), 'yyyy-MM-dd'))
+      .lte('date', format(endOfWeek(new Date(lastDate), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+
+    if (healthError) {
+      console.error("Error fetching health records:", healthError);
+      setHealthRecord(emptyHealthRecord(lastDate));
+      setWeekUsage({ targetDays: 0, maintainingDays: 0 });
+    } else {
+      const mapped = (healthRows || []).map(mapSupabaseHealthRecord);
+      const forDate = mapped.find(r => format(new Date(r.date), 'yyyy-MM-dd') === lastDate);
+      setHealthRecord(forDate ? { ...forDate, date: lastDate } : emptyHealthRecord(lastDate));
+      // The day being edited is excluded — it is counted live from the form.
+      setWeekUsage(summariseWeek(
+        mapped.filter(r => format(new Date(r.date), 'yyyy-MM-dd') !== lastDate),
+        readCalorieSettings(appSettings?.settings_data),
+      ));
+    }
+
     await refreshPeriodCounts(lastDate);
-  }, [activeDatesKey, refreshPeriodCounts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeDatesKey, refreshPeriodCounts, appSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   React.useEffect(() => {
     fetchDataForDates();
@@ -617,6 +649,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     // Habits the day's difficulty excused get an explicit marker, so the date
     // reads as "not required today" instead of looking like a missing record.
     await recordDifficultySkips();
+    await saveHealthForDates();
 
     setEntryIdsByDate(newIds);
     showSuccess(activeDates.length > 1 ? `Saved ${activeDates.length} daily entries!` : "Daily entry saved!");
@@ -704,6 +737,80 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       });
       return next;
     });
+  };
+
+  /**
+   * Writes the health record for every active date, then records a ₹50 reward
+   * for each date that came in at or under the target calorie level.
+   */
+  const saveHealthForDates = async () => {
+    if (healthRecord.meals.length === 0 && !healthRecord.weightChecked) return;
+
+    const rows = activeDates.map(date => ({
+      date,
+      meals: healthRecord.meals,
+      calories_burned: healthRecord.caloriesBurned,
+      is_cheat_day: healthRecord.isCheatDay,
+      weight_checked: healthRecord.weightChecked,
+      weight: healthRecord.weightChecked ? healthRecord.weight : null,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+      .from('daily_health')
+      .upsert(rows, { onConflict: 'date' });
+
+    if (error) {
+      console.error("Error saving health record:", error);
+      showError("Saved the entry, but the health details failed to save.");
+      return;
+    }
+
+    // ₹50 for staying at or under target, once per date.
+    const { average } = calorieTotals(healthRecord.meals, healthRecord.caloriesBurned);
+    const band = calorieBandFor(average, calorieSettings);
+    let rewardedDates = 0;
+
+    for (const date of activeDates) {
+      const key = `AUTO:HEALTH:TARGET:${date}`;
+      const { data: existing } = await supabase
+        .from('fines_status')
+        .select('id')
+        .eq('tracking_value', key)
+        .maybeSingle();
+
+      const earned = band === 'target' && !healthRecord.isCheatDay && healthRecord.meals.length > 0;
+
+      if (!earned) {
+        if (existing) await supabase.from('fines_status').delete().eq('id', existing.id);
+        continue;
+      }
+      if (existing) continue;
+
+      const { error: rewardError } = await supabase.from('fines_status').insert([{
+        type: 'reward',
+        fine_amount: 50,
+        cause: `Reward: stayed at or under the ${calorieSettings.target} kcal target on ${date} (${Math.round(average)} kcal).`,
+        habit_id: '___general___',
+        entry_date: date,
+        status: 'unpaid',
+        period_key: date,
+        tracking_value: key,
+        condition_count: calorieSettings.target,
+        actual_count: Math.round(average),
+        is_auto: true,
+      }]);
+
+      if (rewardError) {
+        console.error("Error recording calorie reward:", rewardError);
+      } else {
+        rewardedDates += 1;
+      }
+    }
+
+    if (rewardedDates > 0) {
+      showSuccess(`₹${rewardedDates * 50} reward added for hitting your calorie target.`);
+    }
   };
 
   const handleConfirmOverwrite = () => {
@@ -1304,6 +1411,17 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             })}
           </div>
         )}
+      </div>
+
+      {/* Health */}
+      <div className="mt-8 pt-8 border-t border-gray-200">
+        <HealthCard
+          record={healthRecord}
+          onChange={setHealthRecord}
+          settings={calorieSettings}
+          weekUsage={weekUsage}
+          dateCount={activeDates.length}
+        />
       </div>
 
       {/* Single Save Entry Button at the very bottom */}

@@ -1,9 +1,12 @@
 import { supabase } from "@/lib/supabase";
 import { Habit } from "@/types/habit";
 import { isSentinelTracking, TEMP_HOLD } from "@/utils/dayType";
+import { format } from "date-fns";
 import {
   HabitCondition,
   periodRangeFor,
+  previousPeriodRangeFor,
+  isSettledEarly,
   evaluateOperator,
   describeCondition,
   renderTemplate,
@@ -160,16 +163,42 @@ export const runConditionsForHabit = async (
   const results: ConditionOutcomeSummary[] = [];
   const conditions: HabitCondition[] = habit.frequencyConditions || [];
 
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+
   for (let index = 0; index < conditions.length; index++) {
     const condition = conditions[index];
     if (!condition.trackingValue) continue;
 
-    const period = periodRangeFor(date, condition.frequency);
+    // Judge the period this date falls in, and also the one that just closed —
+    // otherwise a period that ended before the next entry was written would
+    // never be judged at all.
+    const candidatePeriods = [
+      periodRangeFor(date, condition.frequency),
+      previousPeriodRangeFor(date, condition.frequency),
+    ].filter((period, i, all) => all.findIndex(p => p.key === period.key) === i);
+
+    for (const period of candidatePeriods) {
     const key = autoKey(habit.id, index, period.key);
+    const periodIsOver = period.end < todayStr;
     const actualCount = await countTrackingsInRange(
       habit.id, condition.trackingValue, period.start, period.end,
     );
     let isMet = evaluateOperator(actualCount, condition.operator, condition.count);
+
+    // "Fewer than / at most / exactly" can only be judged once the period has
+    // finished — the count can still rise. Judging mid-period would fine you on
+    // the 1st of the month for not having done something 4 times yet.
+    if (!isSettledEarly(condition.operator) && !periodIsOver) {
+      const { data: prematureRow } = await supabase
+        .from('fines_status')
+        .select('id')
+        .eq('tracking_value', key)
+        .maybeSingle();
+      if (prematureRow) {
+        await supabase.from('fines_status').delete().eq('id', prematureRow.id);
+      }
+      continue;
+    }
 
     // A temporary hold can never produce a fine. Held days are already left out
     // of the count, but on a "not enough" condition (<, <=, ==) that lowered
@@ -250,6 +279,7 @@ export const runConditionsForHabit = async (
       description,
       emailedTo,
     });
+    }
   }
 
   results.push(...await runOutOfControlMissForHabit(habit, date));
