@@ -7,7 +7,7 @@ import { Habit } from '@/types/habit';
 import { YearlyOutOfControlMissCount } from '@/types/tracking';
 import { Switch } from "@/components/ui/switch";
 import { DAY_TYPE_LABELS, WEEK_OFF, TEMP_HOLD, hasRealTrackedValue } from '@/utils/dayType';
-import { evaluateOperator, isSettledEarly, describeValueStatus } from '@/utils/habitConditions';
+import { evaluateOperator, isSettledEarly, describeValueStatus, resolveConditionAmount } from '@/utils/habitConditions';
 import { activeTrackingValues } from '@/utils/habitUtils';
 
 export interface TrackingState {
@@ -91,21 +91,22 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
       const detail =
         `'${condition.trackingValue}' is at ${actualCount} this ${period} ` +
         `(condition: ${condition.operator} ${condition.count})`;
+      const amount = resolveConditionAmount(condition, habit.fineAmount, habit.rewardAmount);
 
       // "Fewer than / at most / exactly" isn't decided until the period ends,
       // so flag it as a trajectory rather than as something already incurred.
       if (!isSettledEarly(condition.operator)) {
         warnings.push(
           `On track: ${detail}. If the ${period} ends here that's a ` +
-          `${condition.outcome} of ₹${(condition.outcome === 'reward' ? habit.rewardAmount : habit.fineAmount) || 0}.`
+          `${condition.outcome} of ₹${amount}.`
         );
         return;
       }
 
       if (condition.outcome === 'reward') {
-        rewards.push(`Reward: ${detail}. Worth ₹${habit.rewardAmount || 0} on save.`);
+        rewards.push(`Reward: ${detail}. Worth ₹${amount} on save.`);
       } else {
-        fines.push(`Fine: ${detail}. Worth ₹${habit.fineAmount || 0} on save.`);
+        fines.push(`Fine: ${detail}. Worth ₹${amount} on save.`);
       }
     });
 

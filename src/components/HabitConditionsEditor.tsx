@@ -16,9 +16,10 @@ import {
   DEFAULT_ALERT_BODY,
 } from "@/utils/habitConditions";
 
-// Count is kept as a string-ish value while editing so the field can be empty.
-export interface ConditionInput extends Omit<HabitCondition, 'count'> {
+// Count and amount are kept string-ish while editing so the fields can be empty.
+export interface ConditionInput extends Omit<HabitCondition, 'count' | 'amount'> {
   count: number | "";
+  amount: number | "";
 }
 
 export const emptyCondition = (): ConditionInput => ({
@@ -27,6 +28,9 @@ export const emptyCondition = (): ConditionInput => ({
   count: "",
   frequency: "weekly",
   outcome: "fine",
+  amount: "",
+  sendEmail: false,
+  emails: [],
 });
 
 export const MAX_CONDITIONS = 5;
@@ -156,6 +160,16 @@ const HabitConditionsEditor: React.FC<HabitConditionsEditorProps> = ({
                   <option value="reward">Reward</option>
                 </select>
 
+                <span className="font-semibold text-gray-700 text-sm">of ₹</span>
+
+                <input
+                  type="number"
+                  placeholder="Amount"
+                  className="w-28 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  value={condition.amount}
+                  onChange={(e) => updateCondition(index, { amount: e.target.value === "" ? "" : Number(e.target.value) })}
+                />
+
                 {conditions.length > 1 && (
                   <button
                     type="button"
@@ -167,6 +181,61 @@ const HabitConditionsEditor: React.FC<HabitConditionsEditorProps> = ({
                   </button>
                 )}
               </div>
+
+              {/* Per-condition email, fines only */}
+              {condition.outcome === "fine" && (
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <label
+                    htmlFor={`condition-email-${idSuffix}-${index}`}
+                    className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      id={`condition-email-${idSuffix}-${index}`}
+                      className="form-checkbox rounded text-blue-600 focus:ring-blue-500 focus:ring-2 h-4 w-4"
+                      checked={condition.sendEmail === true}
+                      onChange={(e) => updateCondition(index, {
+                        sendEmail: e.target.checked,
+                        emails: e.target.checked ? (condition.emails ?? []) : [],
+                      })}
+                    />
+                    Email someone when this condition is met
+                  </label>
+
+                  {condition.sendEmail && (
+                    availableEmails.length === 0 ? (
+                      <p className="text-xs text-gray-500 italic mt-1">
+                        No accountability emails defined yet. Add them on the Settings page first.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {availableEmails.map((email) => (
+                            <label key={email} className="inline-flex items-center bg-white border border-gray-200 px-2.5 py-1 rounded-full text-xs text-gray-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="form-checkbox rounded text-blue-600 focus:ring-blue-500 focus:ring-2 h-3.5 w-3.5 mr-1.5"
+                                checked={(condition.emails ?? []).includes(email)}
+                                onChange={(e) => updateCondition(index, {
+                                  emails: e.target.checked
+                                    ? [...(condition.emails ?? []), email]
+                                    : (condition.emails ?? []).filter(x => x !== email),
+                                })}
+                              />
+                              {email}
+                            </label>
+                          ))}
+                        </div>
+                        {(condition.emails ?? []).length === 0 && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            None picked — the habit's default recipients below will be used.
+                          </p>
+                        )}
+                      </>
+                    )
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -189,7 +258,7 @@ const HabitConditionsEditor: React.FC<HabitConditionsEditorProps> = ({
           <p className="text-xs text-gray-500 mb-2 italic">No condition above is set to "Fine" yet — these settings won't be used.</p>
         )}
 
-        <label htmlFor={`fine-amount-${idSuffix}`} className="block text-xs font-medium text-gray-600">Fine Amount (₹)</label>
+        <label htmlFor={`fine-amount-${idSuffix}`} className="block text-xs font-medium text-gray-600">Default Fine Amount (₹)</label>
         <input
           type="number"
           id={`fine-amount-${idSuffix}`}
@@ -198,10 +267,16 @@ const HabitConditionsEditor: React.FC<HabitConditionsEditorProps> = ({
           value={fineAmount}
           onChange={(e) => onFineAmountChange(e.target.value === "" ? "" : Number(e.target.value))}
         />
-        <p className="text-xs text-gray-500 mt-1">Automatically added to the Fines &amp; Rewards page when a fine condition is met.</p>
+        <p className="text-xs text-gray-500 mt-1">
+          Used by any fine condition above that leaves its own amount blank.
+        </p>
 
         <div className="mt-4">
-          <label className="block text-xs font-medium text-gray-600">Email these people when a fine is incurred</label>
+          <label className="block text-xs font-medium text-gray-600">Default recipients</label>
+          <p className="text-xs text-gray-500">
+            Used by a fine condition that has email switched on but picks nobody of its own.
+            Also used for out-of-control miss alerts.
+          </p>
           {availableEmails.length === 0 ? (
             <p className="text-xs text-gray-500 italic mt-1">
               No accountability emails defined yet. Add them on the Settings page first.
@@ -270,7 +345,7 @@ const HabitConditionsEditor: React.FC<HabitConditionsEditorProps> = ({
         {!hasRewardCondition && (
           <p className="text-xs text-gray-500 mb-2 italic">No condition above is set to "Reward" yet — this amount won't be used.</p>
         )}
-        <label htmlFor={`reward-amount-${idSuffix}`} className="block text-xs font-medium text-gray-600">Reward Amount (₹)</label>
+        <label htmlFor={`reward-amount-${idSuffix}`} className="block text-xs font-medium text-gray-600">Default Reward Amount (₹)</label>
         <input
           type="number"
           id={`reward-amount-${idSuffix}`}
@@ -280,7 +355,7 @@ const HabitConditionsEditor: React.FC<HabitConditionsEditorProps> = ({
           onChange={(e) => onRewardAmountChange(e.target.value === "" ? "" : Number(e.target.value))}
         />
         <p className="text-xs text-gray-500 mt-1">
-          Automatically added to the Fines &amp; Rewards page when a reward condition is met. No email is sent for rewards.
+          Used by any reward condition above that leaves its own amount blank. Rewards never send email.
         </p>
       </div>
     </>

@@ -13,6 +13,12 @@ export interface HabitCondition {
   count: number;
   frequency: ConditionFrequency;
   outcome: ConditionOutcome;
+  /** What this specific condition is worth. Undefined falls back to the habit. */
+  amount?: number;
+  /** Fines only: whether meeting this condition emails anyone. */
+  sendEmail?: boolean;
+  /** Fines only: who to email. Empty falls back to the habit's recipients. */
+  emails?: string[];
 }
 
 export const CONDITION_OPERATORS: ConditionOperator[] = ["==", "<=", ">=", "<", ">"];
@@ -41,7 +47,38 @@ export const normalizeCondition = (raw: any): HabitCondition => ({
   count: Number(raw?.count) || 0,
   frequency: (CONDITION_FREQUENCIES.includes(raw?.frequency) ? raw.frequency : "weekly") as ConditionFrequency,
   outcome: raw?.outcome === "reward" ? "reward" : "fine",
+  // Left undefined when absent so the habit-level fallbacks still apply to
+  // conditions saved before amounts and recipients moved onto the condition.
+  amount: raw?.amount === undefined || raw?.amount === null || raw?.amount === "" ? undefined : Number(raw.amount),
+  sendEmail: typeof raw?.sendEmail === "boolean" ? raw.sendEmail : undefined,
+  emails: Array.isArray(raw?.emails) ? raw.emails : undefined,
 });
+
+/** What a met condition is worth, falling back to the habit-level amounts. */
+export const resolveConditionAmount = (
+  condition: HabitCondition,
+  habitFineAmount: number,
+  habitRewardAmount: number,
+): number => {
+  if (typeof condition.amount === "number") return condition.amount;
+  return (condition.outcome === "fine" ? habitFineAmount : habitRewardAmount) || 0;
+};
+
+/**
+ * Who a met fine condition emails. An older condition with no explicit choice
+ * keeps the previous behaviour: email the habit's recipients if it has any.
+ */
+export const resolveConditionRecipients = (
+  condition: HabitCondition,
+  habitAlertEmails: string[],
+): string[] => {
+  if (condition.outcome !== "fine") return [];
+  if (condition.sendEmail === false) return [];
+  if (condition.sendEmail === true) {
+    return condition.emails && condition.emails.length > 0 ? condition.emails : habitAlertEmails;
+  }
+  return habitAlertEmails; // Legacy condition, no explicit setting.
+};
 
 export const evaluateOperator = (actual: number, operator: ConditionOperator, expected: number): boolean => {
   switch (operator) {

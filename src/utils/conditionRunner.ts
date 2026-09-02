@@ -7,6 +7,8 @@ import {
   periodRangeFor,
   previousPeriodRangeFor,
   isSettledEarly,
+  resolveConditionAmount,
+  resolveConditionRecipients,
   evaluateOperator,
   describeCondition,
   renderTemplate,
@@ -76,11 +78,12 @@ const hasHoldInRange = async (habitId: string, start: string, end: string): Prom
 
 const sendAccountabilityEmail = async (
   habit: Habit,
+  recipientList: string[],
   vars: Record<string, string | number>,
   alertKey: string,
   periodKey: string,
 ): Promise<string[]> => {
-  const recipients = (habit.alertEmails || []).filter(Boolean);
+  const recipients = (recipientList || []).filter(Boolean);
   if (recipients.length === 0) return [];
 
   // The log is the source of truth for "already sent", so deleting or
@@ -223,7 +226,7 @@ export const runConditionsForHabit = async (
     }
 
     const isFine = condition.outcome === 'fine';
-    const amount = isFine ? (habit.fineAmount || 0) : (habit.rewardAmount || 0);
+    const amount = resolveConditionAmount(condition, habit.fineAmount, habit.rewardAmount);
     const description =
       `${isFine ? 'Fine' : 'Reward'}: '${habit.name}' — ${condition.trackingValue} ` +
       `${condition.operator} ${condition.count} (${FREQUENCY_LABELS[condition.frequency].toLowerCase()}), ` +
@@ -258,7 +261,7 @@ export const runConditionsForHabit = async (
 
     let emailedTo: string[] = [];
     if (isFine) {
-      emailedTo = await sendAccountabilityEmail(habit, {
+      emailedTo = await sendAccountabilityEmail(habit, resolveConditionRecipients(condition, habit.alertEmails || []), {
         habit_name: habit.name,
         fine_amount: amount,
         tracking_value: condition.trackingValue,
@@ -352,7 +355,7 @@ const runOutOfControlMissForHabit = async (
       .eq('id', existingRow.id);
   }
 
-  const emailedTo = await sendAccountabilityEmail(habit, {
+  const emailedTo = await sendAccountabilityEmail(habit, habit.alertEmails || [], {
     habit_name: habit.name,
     fine_amount: amount,
     tracking_value: "out-of-control miss",

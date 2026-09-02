@@ -49,7 +49,13 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       setTempTrackingValues(initialHabit.trackingValues || []); // Defensive check
       setFrequencyConditions(
         (initialHabit.frequencyConditions || []).length > 0 // Defensive check
-          ? (initialHabit.frequencyConditions || []).map(cond => ({ ...cond, count: cond.count === 0 ? "" : cond.count }))
+          ? (initialHabit.frequencyConditions || []).map(cond => ({
+            ...cond,
+            count: cond.count === 0 ? "" : cond.count,
+            amount: cond.amount === undefined ? "" : cond.amount,
+            sendEmail: cond.sendEmail ?? false,
+            emails: cond.emails ?? [],
+          }))
           : [emptyCondition()]
       );
       setFineAmount(initialHabit.fineAmount === 0 ? "" : initialHabit.fineAmount);
@@ -114,7 +120,14 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       trackingValues: tempTrackingValues,
       frequencyConditions: frequencyConditions
         .filter(cond => cond.trackingValue && cond.count !== "")
-        .map(cond => ({ ...cond, count: Number(cond.count) })),
+        .map(cond => ({
+          ...cond,
+          count: Number(cond.count),
+          // Blank amount means "use the habit default", so keep it undefined.
+          amount: cond.amount === "" ? undefined : Number(cond.amount),
+          sendEmail: cond.outcome === 'fine' ? cond.sendEmail === true : undefined,
+          emails: cond.outcome === 'fine' && cond.sendEmail ? (cond.emails ?? []) : undefined,
+        })),
       fineAmount: typeof fineAmount === 'number' ? fineAmount : 0,
       rewardAmount: typeof rewardAmount === 'number' ? rewardAmount : 0,
       alertEmails,

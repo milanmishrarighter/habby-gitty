@@ -147,7 +147,14 @@ const HabitSetup: React.FC = () => {
       tracking_values: tempTrackingValues,
       frequency_conditions: frequencyConditions
         .filter(cond => cond.trackingValue && cond.count !== "")
-        .map(cond => ({ ...cond, count: Number(cond.count) })),
+        .map(cond => ({
+          ...cond,
+          count: Number(cond.count),
+          // Blank amount means "use the habit default", so keep it undefined.
+          amount: cond.amount === "" ? undefined : Number(cond.amount),
+          sendEmail: cond.outcome === 'fine' ? cond.sendEmail === true : undefined,
+          emails: cond.outcome === 'fine' && cond.sendEmail ? (cond.emails ?? []) : undefined,
+        })),
       fine_amount: typeof fineAmount === 'number' ? fineAmount : 0,
       reward_amount: typeof rewardAmount === 'number' ? rewardAmount : 0,
       alert_emails: alertEmails,

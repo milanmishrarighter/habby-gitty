@@ -4,7 +4,7 @@ import React from 'react';
 import { Button } from "@/components/ui/button"; // Assuming you have a Button component
 import { Habit } from "@/types/habit"; // Import the centralized Habit interface
 import { DAY_TYPE_LABELS } from "@/utils/dayType";
-import { FREQUENCY_LABELS } from "@/utils/habitConditions";
+import { FREQUENCY_LABELS, resolveConditionAmount, resolveConditionRecipients } from "@/utils/habitConditions";
 
 interface HabitCardProps {
   habit: Habit;
@@ -77,8 +77,11 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
               &bull; If {condition.trackingValue} {condition.operator} {condition.count}{" "}
               ({FREQUENCY_LABELS[condition.frequency].toLowerCase()}) →{" "}
               <span className={condition.outcome === "reward" ? "text-green-700 font-semibold" : "text-red-700 font-semibold"}>
-                {condition.outcome}
+                {condition.outcome} ₹{resolveConditionAmount(condition, habit.fineAmount, habit.rewardAmount)}
               </span>
+              {condition.outcome === "fine" && resolveConditionRecipients(condition, habit.alertEmails || []).length > 0 && (
+                <span className="text-gray-500"> · emails</span>
+              )}
             </p>
           ))}
         </div>
@@ -88,17 +91,17 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
         <p className="mt-2 text-sm text-gray-500 italic">Hint: {habit.hintText}</p>
       )}
 
-      {habit.fineAmount > 0 && (
-        <p className="mt-2 text-sm text-red-600 font-bold">Fine: ₹{habit.fineAmount}</p>
-      )}
-
-      {habit.rewardAmount > 0 && (
-        <p className="mt-1 text-sm text-green-600 font-bold">Reward: ₹{habit.rewardAmount}</p>
+      {(habit.fineAmount > 0 || habit.rewardAmount > 0) && (
+        <p className="mt-2 text-xs text-gray-600 text-left">
+          Defaults: {habit.fineAmount > 0 && <span className="text-red-600 font-semibold">fine ₹{habit.fineAmount}</span>}
+          {habit.fineAmount > 0 && habit.rewardAmount > 0 && " · "}
+          {habit.rewardAmount > 0 && <span className="text-green-600 font-semibold">reward ₹{habit.rewardAmount}</span>}
+        </p>
       )}
 
       {habit.alertEmails && habit.alertEmails.length > 0 && (
         <p className="mt-1 text-xs text-gray-600 text-left">
-          Emails on fine: {habit.alertEmails.join(", ")}
+          Default recipients: {habit.alertEmails.join(", ")}
         </p>
       )}
 
