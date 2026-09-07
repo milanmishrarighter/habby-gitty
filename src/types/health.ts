@@ -12,6 +12,24 @@ export interface MealEntry {
   maxCalorie: number;
 }
 
+export type ShittyDayGrade = "A" | "B" | "C" | "D";
+export const SHITTY_DAY_GRADES: ShittyDayGrade[] = ["A", "B", "C", "D"];
+
+export type MissedDayEating = "good" | "average" | "bad";
+
+/** What a missed day costs, by how the eating went. */
+export const MISSED_DAY_FINES: Record<MissedDayEating, number> = {
+  good: 0,
+  average: 100,
+  bad: 500,
+};
+
+export const MISSED_DAY_EATING_LABELS: Record<MissedDayEating, string> = {
+  good: "Good — no fine",
+  average: "Average — ₹100 fine",
+  bad: "Bad — ₹500 fine",
+};
+
 export interface DailyHealthRecord {
   id?: string;
   date: string;
@@ -20,6 +38,9 @@ export interface DailyHealthRecord {
   isCheatDay: boolean;
   weightChecked: boolean;
   weight: number | null;
+  shittyDay: ShittyDayGrade | null;
+  missedDay: boolean;
+  missedDayEating: MissedDayEating | null;
 }
 
 export interface CalorieSettings {
@@ -43,6 +64,9 @@ export const emptyHealthRecord = (date: string): DailyHealthRecord => ({
   isCheatDay: false,
   weightChecked: false,
   weight: null,
+  shittyDay: null,
+  missedDay: false,
+  missedDayEating: null,
 });
 
 export const mapSupabaseHealthRecord = (row: any): DailyHealthRecord => ({
@@ -53,6 +77,9 @@ export const mapSupabaseHealthRecord = (row: any): DailyHealthRecord => ({
   isCheatDay: row.is_cheat_day ?? false,
   weightChecked: row.weight_checked ?? false,
   weight: row.weight === null || row.weight === undefined ? null : Number(row.weight),
+  shittyDay: (row.shitty_day as ShittyDayGrade) || null,
+  missedDay: row.missed_day ?? false,
+  missedDayEating: (row.missed_day_eating as MissedDayEating) || null,
 });
 
 export const mapSupabaseSavedMeal = (row: any): SavedMeal => ({

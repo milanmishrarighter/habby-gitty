@@ -6,14 +6,24 @@ import { showError } from "@/utils/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, ReferenceLine,
+  LineChart, Line, AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { format, startOfYear, endOfYear, startOfMonth, endOfMonth, parseISO } from "date-fns";
-import { DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, mapSupabaseHealthRecord } from "@/types/health";
+import {
+  DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, mapSupabaseHealthRecord,
+  SHITTY_DAY_GRADES, ShittyDayGrade,
+} from "@/types/health";
 import { calorieTotals, readCalorieSettings } from "@/utils/healthUtils";
 
 type Scope = "monthly" | "yearly";
+
+const SHITTY_DAY_COLORS: Record<ShittyDayGrade, string> = {
+  A: "#16a34a",
+  B: "#65a30d",
+  C: "#ea580c",
+  D: "#dc2626",
+};
 
 const HealthAnalytics: React.FC = () => {
   const [records, setRecords] = React.useState<DailyHealthRecord[]>([]);
@@ -77,6 +87,19 @@ const HealthAnalytics: React.FC = () => {
       date: format(parseISO(record.date), 'd MMM'),
       weight: record.weight as number,
     })), [records]);
+
+  const shittyDayData = React.useMemo(() => {
+    const counts: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+    records.forEach(record => {
+      if (record.shittyDay) counts[record.shittyDay] += 1;
+    });
+    return SHITTY_DAY_GRADES.map(grade => ({ grade, days: counts[grade] }));
+  }, [records]);
+
+  const missedDays = React.useMemo(
+    () => records.filter(record => record.missedDay).length,
+    [records],
+  );
 
   const summary = React.useMemo(() => {
     if (calorieData.length === 0) return null;
@@ -147,6 +170,12 @@ const HealthAnalytics: React.FC = () => {
                 <p className="text-xs text-gray-600">Range</p>
                 <p className="text-xl font-bold text-gray-800">{summary.lowest}–{summary.highest}</p>
               </div>
+              {missedDays > 0 && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+                  <p className="text-xs text-red-700">Days missed</p>
+                  <p className="text-xl font-bold text-red-800">{missedDays}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -182,6 +211,33 @@ const HealthAnalytics: React.FC = () => {
                           label={{ value: "Cheat day", position: "insideTopRight", fontSize: 11 }} />
                       )}
                     </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Shitty days — {periodLabel}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {shittyDayData.every(d => d.days === 0) ? (
+                <p className="text-gray-500 text-sm">No day grades recorded in this period.</p>
+              ) : (
+                <div className="w-full overflow-x-auto">
+                  <ResponsiveContainer width="100%" height={240} minWidth={320}>
+                    <BarChart data={shittyDayData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis dataKey="grade" tick={{ fontSize: 12 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Bar dataKey="days" name="Days" radius={[4, 4, 0, 0]}>
+                        {shittyDayData.map((entry) => (
+                          <Cell key={entry.grade} fill={SHITTY_DAY_COLORS[entry.grade as ShittyDayGrade]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               )}

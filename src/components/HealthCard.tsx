@@ -6,7 +6,10 @@ import { Switch } from "@/components/ui/switch";
 import { Trash2, Pencil, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
-import { DailyHealthRecord, SavedMeal, MealEntry, CalorieSettings, mapSupabaseSavedMeal } from "@/types/health";
+import {
+  DailyHealthRecord, SavedMeal, MealEntry, CalorieSettings, mapSupabaseSavedMeal,
+  SHITTY_DAY_GRADES, ShittyDayGrade, MissedDayEating, MISSED_DAY_EATING_LABELS, MISSED_DAY_FINES,
+} from "@/types/health";
 import {
   calorieTotals, healthWarningsFor, AllowanceUsage,
   WEEKLY_MAINTAINING_ALLOWANCE, WEEKLY_TARGET_ALLOWANCE,
@@ -17,11 +20,11 @@ interface HealthCardProps {
   onChange: (record: DailyHealthRecord) => void;
   settings: CalorieSettings;
   weekUsage: AllowanceUsage;
-  /** More than one date means the same health entry is written to each of them. */
-  dateCount: number;
+  /** Shown in the header when the card belongs to one date of a range. */
+  dateLabel?: string;
 }
 
-const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, weekUsage, dateCount }) => {
+const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, weekUsage, dateLabel }) => {
   const [savedMeals, setSavedMeals] = React.useState<SavedMeal[]>([]);
   const [foodName, setFoodName] = React.useState("");
   const [minCalorie, setMinCalorie] = React.useState<number | "">("");
@@ -148,22 +151,68 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
     showSuccess(`'${meal.foodName}' removed from saved meals.`);
   };
 
+  // Several of these cards render at once in range mode, so every element id
+  // has to be scoped to the date this card belongs to.
+  const uid = record.date;
   const totals = calorieTotals(record.meals, record.caloriesBurned);
-  const warnings = healthWarningsFor(record, settings, weekUsage);
+  const warnings = record.missedDay ? [] : healthWarningsFor(record, settings, weekUsage);
 
   return (
     <div className="p-4 rounded-lg shadow-md flex flex-col space-y-4 bg-emerald-50 border border-emerald-200 text-left">
       <div className="flex items-center justify-between">
         <h3 className="text-2xl font-bold text-gray-800">Health</h3>
-        {dateCount > 1 && (
+        {dateLabel && (
           <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-            Applied to {dateCount} dates
+            {dateLabel}
           </span>
         )}
       </div>
 
+      {/* Missed this day — everything below is skipped when this is on */}
+      <div className="p-3 rounded-lg bg-white/70">
+        <label htmlFor={`missed-day-${uid}`} className="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer">
+          <input
+            type="checkbox"
+            id={`missed-day-${uid}`}
+            className="form-checkbox rounded text-blue-600 focus:ring-blue-500 focus:ring-2 h-4 w-4"
+            checked={record.missedDay}
+            onChange={(e) => onChange({
+              ...record,
+              missedDay: e.target.checked,
+              missedDayEating: e.target.checked ? (record.missedDayEating ?? "good") : null,
+            })}
+          />
+          Missed this day
+        </label>
+
+        {record.missedDay && (
+          <div className="mt-3">
+            <label htmlFor={`missed-eating-${uid}`} className="block text-sm font-medium text-gray-700">
+              How was the average eating habit that day?
+            </label>
+            <select
+              id={`missed-eating-${uid}`}
+              className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
+              value={record.missedDayEating ?? "good"}
+              onChange={(e) => onChange({ ...record, missedDayEating: e.target.value as MissedDayEating })}
+            >
+              {(Object.keys(MISSED_DAY_EATING_LABELS) as MissedDayEating[]).map((grade) => (
+                <option key={grade} value={grade}>{MISSED_DAY_EATING_LABELS[grade]}</option>
+              ))}
+            </select>
+            {MISSED_DAY_FINES[record.missedDayEating ?? "good"] > 0 && (
+              <p className="mt-2 p-2 rounded-md text-sm bg-red-100 text-red-800 border border-red-300">
+                A ₹{MISSED_DAY_FINES[record.missedDayEating ?? "good"]} fine will be recorded on save.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {!record.missedDay && (
+      <>
       {/* Cheat day */}
-      <label htmlFor="cheat-day" className="flex items-center justify-between gap-4 p-3 rounded-lg bg-white/70 cursor-pointer">
+      <label htmlFor={`cheat-day-${uid}`} className="flex items-center justify-between gap-4 p-3 rounded-lg bg-white/70 cursor-pointer">
         <span className="flex-grow text-sm font-medium text-gray-800">
           Was today a cheat day?
           <span className="block text-xs text-gray-600 font-normal">
@@ -173,7 +222,7 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
           </span>
         </span>
         <Switch
-          id="cheat-day"
+          id={`cheat-day-${uid}`}
           checked={record.isCheatDay}
           onCheckedChange={(checked) => onChange({ ...record, isCheatDay: checked })}
         />
@@ -181,12 +230,12 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
 
       {/* Add a meal */}
       <div>
-        <label htmlFor="food-eaten" className="block text-sm font-medium text-gray-700">Enter meal</label>
+        <label htmlFor={`food-eaten-${uid}`} className="block text-sm font-medium text-gray-700">Enter meal</label>
         <div className="mt-1 grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-2 items-start">
           <div className="relative">
             <input
               type="text"
-              id="food-eaten"
+              id={`food-eaten-${uid}`}
               placeholder="Food eaten"
               autoComplete="off"
               className="p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
@@ -231,10 +280,10 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
           <Button type="button" onClick={addMeal} className="shrink-0">Add</Button>
         </div>
 
-        <label htmlFor="save-this-meal" className="flex items-center gap-2 mt-2 text-sm text-gray-700 cursor-pointer">
+        <label htmlFor={`save-this-meal-${uid}`} className="flex items-center gap-2 mt-2 text-sm text-gray-700 cursor-pointer">
           <input
             type="checkbox"
-            id="save-this-meal"
+            id={`save-this-meal-${uid}`}
             className="form-checkbox rounded text-blue-600 focus:ring-blue-500 focus:ring-2 h-4 w-4"
             checked={saveThisMeal}
             onChange={(e) => setSaveThisMeal(e.target.checked)}
@@ -321,12 +370,12 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
 
       {/* Calories burned */}
       <div>
-        <label htmlFor="calories-burned" className="block text-sm font-medium text-gray-700">
+        <label htmlFor={`calories-burned-${uid}`} className="block text-sm font-medium text-gray-700">
           Lost any calorie due to exercise/walking?
         </label>
         <input
           type="number"
-          id="calories-burned"
+          id={`calories-burned-${uid}`}
           placeholder="0"
           className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
           value={record.caloriesBurned === 0 ? "" : record.caloriesBurned}
@@ -368,12 +417,15 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
         </div>
       ))}
 
+      </>
+      )}
+
       {/* Weight */}
       <div className="pt-3 border-t border-emerald-200">
-        <label htmlFor="weight-checked" className="flex items-center justify-between gap-4 cursor-pointer">
+        <label htmlFor={`weight-checked-${uid}`} className="flex items-center justify-between gap-4 cursor-pointer">
           <span className="flex-grow text-sm font-medium text-gray-800">Did you check your weight today?</span>
           <Switch
-            id="weight-checked"
+            id={`weight-checked-${uid}`}
             checked={record.weightChecked}
             onCheckedChange={(checked) => onChange({
               ...record,
@@ -392,6 +444,25 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
             onChange={(e) => onChange({ ...record, weight: e.target.value === "" ? null : Number(e.target.value) })}
           />
         )}
+      </div>
+
+      {/* Shitty day grade */}
+      <div>
+        <label htmlFor={`shitty-day-${uid}`} className="block text-sm font-medium text-gray-800">Shitty day?</label>
+        <select
+          id={`shitty-day-${uid}`}
+          className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
+          value={record.shittyDay ?? ""}
+          onChange={(e) => onChange({
+            ...record,
+            shittyDay: e.target.value === "" ? null : (e.target.value as ShittyDayGrade),
+          })}
+        >
+          <option value="">Not recorded</option>
+          {SHITTY_DAY_GRADES.map((grade) => (
+            <option key={grade} value={grade}>{grade}</option>
+          ))}
+        </select>
       </div>
     </div>
   );

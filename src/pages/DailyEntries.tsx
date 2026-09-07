@@ -17,7 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { AppSettings } from "@/types/appSettings";
 import { runConditionsForHabits } from "@/utils/conditionRunner";
 import HealthCard from "@/components/HealthCard";
-import { DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord } from "@/types/health";
+import { DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord, MISSED_DAY_FINES } from "@/types/health";
 import { readCalorieSettings, calorieTotals, calorieBandFor, summariseWeek, AllowanceUsage } from "@/utils/healthUtils";
 import {
   DayType,
@@ -93,7 +93,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const missedFineAppliedForDateRef = React.useRef<string | null>(null);
 
   // Health
-  const [healthRecord, setHealthRecord] = React.useState<DailyHealthRecord>(emptyHealthRecord(getTodayDate()));
+  const [healthRecords, setHealthRecords] = React.useState<{ [date: string]: DailyHealthRecord }>({});
   const [calorieSettings, setCalorieSettings] = React.useState<CalorieSettings>(EMPTY_CALORIE_SETTINGS);
   const [weekUsage, setWeekUsage] = React.useState<AllowanceUsage>({ targetDays: 0, maintainingDays: 0 });
 
@@ -514,20 +514,25 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     const { data: healthRows, error: healthError } = await supabase
       .from('daily_health')
       .select('*')
-      .gte('date', format(startOfWeek(new Date(lastDate), { weekStartsOn: 1 }), 'yyyy-MM-dd'))
+      .gte('date', format(startOfWeek(new Date(firstDate), { weekStartsOn: 1 }), 'yyyy-MM-dd'))
       .lte('date', format(endOfWeek(new Date(lastDate), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
 
     if (healthError) {
       console.error("Error fetching health records:", healthError);
-      setHealthRecord(emptyHealthRecord(lastDate));
+      setHealthRecords(Object.fromEntries(activeDates.map(d => [d, emptyHealthRecord(d)])));
       setWeekUsage({ targetDays: 0, maintainingDays: 0 });
     } else {
       const mapped = (healthRows || []).map(mapSupabaseHealthRecord);
-      const forDate = mapped.find(r => format(new Date(r.date), 'yyyy-MM-dd') === lastDate);
-      setHealthRecord(forDate ? { ...forDate, date: lastDate } : emptyHealthRecord(lastDate));
+      const byDate: { [date: string]: DailyHealthRecord } = {};
+      activeDates.forEach(date => {
+        const existing = mapped.find(r => format(new Date(r.date), 'yyyy-MM-dd') === date);
+        byDate[date] = existing ? { ...existing, date } : emptyHealthRecord(date);
+      });
+      setHealthRecords(byDate);
       // The day being edited is excluded — it is counted live from the form.
+      // Dates being edited are excluded — they are counted live from the form.
       setWeekUsage(summariseWeek(
-        mapped.filter(r => format(new Date(r.date), 'yyyy-MM-dd') !== lastDate),
+        mapped.filter(r => !activeDates.includes(format(new Date(r.date), 'yyyy-MM-dd'))),
         readCalorieSettings(appSettings?.settings_data),
       ));
     }
@@ -542,6 +547,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const saveEntry = async (overwrite: boolean = false) => {
     if (activeDates.length === 0 || !journalText.trim()) {
       showError("Please select a date and write your journal entry.");
+      scrollToProblem(activeDates.length === 0 ? "entry-date" : "journal-entry");
       return;
     }
     if (rangeError) {
@@ -550,10 +556,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     }
 
     const missingFields: string[] = [];
-    if (!dayType) missingFields.push("Day Type");
-    if (!moodEmoji) missingFields.push("Mood of the Day");
-    if (!newLearningText.trim()) missingFields.push("What's something new you learned today");
-    if (!miscTextTracking.trim()) missingFields.push("Misc. text tracking");
+    // Ordered top-to-bottom so the first one is what we scroll to.
+    const problems: { label: string; elementId: string }[] = [];
+    const flagMissing = (label: string, elementId: string) => {
+      missingFields.push(label);
+      problems.push({ label, elementId });
+    };
+
+    if (!dayType) flagMissing("Day Type", "day-type-selector");
+    if (!journalText.trim()) flagMissing("Journal Entry", "journal-entry");
+    if (!newLearningText.trim()) flagMissing("What's something new you learned today", "new-learning-text");
+    if (!miscTextTracking.trim()) flagMissing("Misc. text tracking", "misc-text-tracking");
+    if (!moodEmoji) flagMissing("Mood of the Day", "mood-picker");
 
     // Every visible habit needs a value, a miss, or a hold — on every date.
     const missingHabits: string[] = [];
@@ -572,6 +586,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         missingHabits.push(
           activeDates.length > 1 ? `${habit.name} (${untrackedDates.length} days)` : habit.name
         );
+        problems.push({ label: habit.name, elementId: `habit-card-${habit.id}` });
       }
     });
 
@@ -580,6 +595,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       const habitMsg = missingHabits.length > 0 ? `Untracked habits: ${missingHabits.join(", ")}` : "";
       const divider = fieldMsg && habitMsg ? " | " : "";
       showError(`${fieldMsg}${divider}${habitMsg}`.trim());
+      scrollToProblem(problems[0]?.elementId);
       return;
     }
 
@@ -646,13 +662,19 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       }
     }
 
+    // The entry itself is safe now, so acknowledge it and get back to the top
+    // immediately. Everything below makes many round trips and would otherwise
+    // leave the page sitting at the bottom for seconds after a successful save.
+    setEntryIdsByDate(newIds);
+    setShowOverwriteConfirmModal(false);
+    setPendingOverwriteDates([]);
+    showSuccess(activeDates.length > 1 ? `Saved ${activeDates.length} daily entries!` : "Daily entry saved!");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
     // Habits the day's difficulty excused get an explicit marker, so the date
     // reads as "not required today" instead of looking like a missing record.
     await recordDifficultySkips();
     await saveHealthForDates();
-
-    setEntryIdsByDate(newIds);
-    showSuccess(activeDates.length > 1 ? `Saved ${activeDates.length} daily entries!` : "Daily entry saved!");
 
     // Now that the day's tracking is final, evaluate each habit's conditions.
     // This records any fines/rewards and emails the accountability contacts.
@@ -669,21 +691,32 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         (emailed.length > 0 ? ` Accountability email sent to ${[...new Set(emailed)].join(', ')}.` : '')
       );
     }
-    setShowOverwriteConfirmModal(false);
-    setPendingOverwriteDates([]);
+    // Then move on to the next date that still needs an entry.
+    const nextEmpty = await findNextEmptyDate(summaryDate);
+    if (nextEmpty && nextEmpty !== entryDate) {
+      setIsRangeMode(false);
+      setEntryDate(nextEmpty);
+      setRangeEndDate(nextEmpty);
+      showInfo(`Moving to next empty date: ${nextEmpty}`);
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
-    // After a short delay, jump to the next empty date automatically
-    setTimeout(async () => {
-      const nextEmpty = await findNextEmptyDate(summaryDate);
-      if (nextEmpty && nextEmpty !== entryDate) {
-        setIsRangeMode(false);
-        setEntryDate(nextEmpty);
-        setRangeEndDate(nextEmpty);
-        showInfo(`Moving to next empty date: ${nextEmpty}`);
-      }
+  /** Brings the first thing blocking a save into view. */
+  const scrollToProblem = (elementId?: string) => {
+    if (!elementId) {
       window.scrollTo({ top: 0, behavior: "smooth" });
-    }, 1200);
+      return;
+    }
+    const element = document.getElementById(elementId);
+    if (!element) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    // A ring that fades, so it's obvious which field is being complained about.
+    element.classList.add("ring-4", "ring-red-400", "rounded-lg");
+    setTimeout(() => element.classList.remove("ring-4", "ring-red-400", "rounded-lg"), 2500);
   };
 
   /**
@@ -744,73 +777,126 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
    * for each date that came in at or under the target calorie level.
    */
   const saveHealthForDates = async () => {
-    if (healthRecord.meals.length === 0 && !healthRecord.weightChecked) return;
+    const rows: any[] = [];
+    for (const date of activeDates) {
+      const record = healthRecords[date];
+      if (!record) continue;
+      const isBlank = record.meals.length === 0 && !record.weightChecked
+        && !record.missedDay && !record.shittyDay;
+      if (isBlank) continue;
 
-    const rows = activeDates.map(date => ({
-      date,
-      meals: healthRecord.meals,
-      calories_burned: healthRecord.caloriesBurned,
-      is_cheat_day: healthRecord.isCheatDay,
-      weight_checked: healthRecord.weightChecked,
-      weight: healthRecord.weightChecked ? healthRecord.weight : null,
-      updated_at: new Date().toISOString(),
-    }));
-
-    const { error } = await supabase
-      .from('daily_health')
-      .upsert(rows, { onConflict: 'date' });
-
-    if (error) {
-      console.error("Error saving health record:", error);
-      showError("Saved the entry, but the health details failed to save.");
-      return;
+      rows.push({
+        date,
+        meals: record.missedDay ? [] : record.meals,
+        calories_burned: record.missedDay ? 0 : record.caloriesBurned,
+        is_cheat_day: record.missedDay ? false : record.isCheatDay,
+        weight_checked: record.weightChecked,
+        weight: record.weightChecked ? record.weight : null,
+        shitty_day: record.shittyDay,
+        missed_day: record.missedDay,
+        missed_day_eating: record.missedDay ? (record.missedDayEating ?? 'good') : null,
+        updated_at: new Date().toISOString(),
+      });
     }
 
-    // ₹50 for staying at or under target, once per date.
-    const { average } = calorieTotals(healthRecord.meals, healthRecord.caloriesBurned);
-    const band = calorieBandFor(average, calorieSettings);
-    let rewardedDates = 0;
+    if (rows.length > 0) {
+      const { error } = await supabase.from('daily_health').upsert(rows, { onConflict: 'date' });
+      if (error) {
+        console.error("Error saving health records:", error);
+        showError("Saved the entry, but the health details failed to save.");
+        return;
+      }
+    }
+
+    let rewardTotal = 0;
+    let fineTotal = 0;
 
     for (const date of activeDates) {
-      const key = `AUTO:HEALTH:TARGET:${date}`;
-      const { data: existing } = await supabase
-        .from('fines_status')
-        .select('id')
-        .eq('tracking_value', key)
-        .maybeSingle();
+      const record = healthRecords[date];
+      if (!record) continue;
 
-      const earned = band === 'target' && !healthRecord.isCheatDay && healthRecord.meals.length > 0;
-
-      if (!earned) {
-        if (existing) await supabase.from('fines_status').delete().eq('id', existing.id);
-        continue;
-      }
-      if (existing) continue;
-
-      const { error: rewardError } = await supabase.from('fines_status').insert([{
+      // Reward for staying at or under the calorie target.
+      const { average } = calorieTotals(record.meals, record.caloriesBurned);
+      const band = calorieBandFor(average, calorieSettings);
+      const earnedReward = !record.missedDay
+        && record.meals.length > 0
+        && !record.isCheatDay
+        && band === 'target';
+      rewardTotal += await syncAutoHealthEntry({
+        key: `AUTO:HEALTH:TARGET:${date}`,
+        date,
+        applies: earnedReward,
         type: 'reward',
-        fine_amount: 50,
+        amount: 50,
         cause: `Reward: stayed at or under the ${calorieSettings.target} kcal target on ${date} (${Math.round(average)} kcal).`,
-        habit_id: '___general___',
-        entry_date: date,
-        status: 'unpaid',
-        period_key: date,
-        tracking_value: key,
-        condition_count: calorieSettings.target,
-        actual_count: Math.round(average),
-        is_auto: true,
-      }]);
+      });
 
-      if (rewardError) {
-        console.error("Error recording calorie reward:", rewardError);
-      } else {
-        rewardedDates += 1;
-      }
+      // Fine for a missed day, sized by how the eating went.
+      const grade = record.missedDayEating ?? 'good';
+      const missedFine = record.missedDay ? MISSED_DAY_FINES[grade] : 0;
+      fineTotal += await syncAutoHealthEntry({
+        key: `AUTO:HEALTH:MISSED:${date}`,
+        date,
+        applies: record.missedDay && missedFine > 0,
+        type: 'fine',
+        amount: missedFine,
+        cause: `Fine: health tracking missed on ${date} — eating recorded as '${grade}'.`,
+      });
     }
 
-    if (rewardedDates > 0) {
-      showSuccess(`₹${rewardedDates * 50} reward added for hitting your calorie target.`);
+    if (rewardTotal > 0) {
+      showSuccess(`₹${rewardTotal} reward added for hitting your calorie target.`);
     }
+    if (fineTotal > 0) {
+      showError(`₹${fineTotal} fine recorded for missed health tracking.`);
+    }
+  };
+
+  /**
+   * Creates, updates or withdraws one automatic health fine/reward, keyed so it
+   * can never be double-recorded. Returns the amount if it now applies.
+   */
+  const syncAutoHealthEntry = async (input: {
+    key: string; date: string; applies: boolean;
+    type: 'fine' | 'reward'; amount: number; cause: string;
+  }): Promise<number> => {
+    const { data: existing } = await supabase
+      .from('fines_status')
+      .select('id')
+      .eq('tracking_value', input.key)
+      .maybeSingle();
+
+    if (!input.applies) {
+      if (existing) await supabase.from('fines_status').delete().eq('id', existing.id);
+      return 0;
+    }
+    if (existing) {
+      await supabase
+        .from('fines_status')
+        .update({ fine_amount: input.amount, cause: input.cause })
+        .eq('id', existing.id);
+      return 0; // Already counted on a previous save.
+    }
+
+    const { error } = await supabase.from('fines_status').insert([{
+      type: input.type,
+      fine_amount: input.amount,
+      cause: input.cause,
+      habit_id: '___general___',
+      entry_date: input.date,
+      status: 'unpaid',
+      period_key: input.date,
+      tracking_value: input.key,
+      condition_count: 0,
+      actual_count: 0,
+      is_auto: true,
+    }]);
+
+    if (error) {
+      console.error("Error recording automatic health entry:", error);
+      return 0;
+    }
+    return input.amount;
   };
 
   const handleConfirmOverwrite = () => {
@@ -1205,7 +1291,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       {/* Day Type Selector */}
       <div className="flex flex-col items-center justify-center mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">How was the day?</label>
-        <div className="flex flex-wrap justify-center gap-2">
+        <div id="day-type-selector" className="flex flex-wrap justify-center gap-2">
           {DAY_TYPES.map((type) => (
             <button
               key={type}
@@ -1361,7 +1447,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       {/* Mood Emoji Picker */}
       <div className="flex flex-col items-center justify-center mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">Mood of the Day</label>
-        <EmojiPicker selectedEmoji={moodEmoji} onSelectEmoji={setMoodEmoji} />
+        <div id="mood-picker">
+          <EmojiPicker selectedEmoji={moodEmoji} onSelectEmoji={setMoodEmoji} />
+        </div>
       </div>
 
       {/* Daily Habit Tracking Section */}
@@ -1395,8 +1483,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
               });
 
               return (
+                <div id={`habit-card-${habit.id}`} key={habit.id}>
                 <DailyHabitTrackerCard
-                  key={habit.id}
                   habit={habit}
                   dates={activeDates}
                   trackingByDate={trackingByDate}
@@ -1407,21 +1495,25 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
                   monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
                 />
+                </div>
               );
             })}
           </div>
         )}
       </div>
 
-      {/* Health */}
-      <div className="mt-8 pt-8 border-t border-gray-200">
-        <HealthCard
-          record={healthRecord}
-          onChange={setHealthRecord}
-          settings={calorieSettings}
-          weekUsage={weekUsage}
-          dateCount={activeDates.length}
-        />
+      {/* Health — one card per date, same as the habits */}
+      <div className="mt-8 pt-8 border-t border-gray-200 space-y-4">
+        {activeDates.map((date) => (
+          <HealthCard
+            key={date}
+            record={healthRecords[date] || emptyHealthRecord(date)}
+            onChange={(updated) => setHealthRecords(prev => ({ ...prev, [date]: updated }))}
+            settings={calorieSettings}
+            weekUsage={weekUsage}
+            dateLabel={activeDates.length > 1 ? format(new Date(date), 'EEE, d MMM') : undefined}
+          />
+        ))}
       </div>
 
       {/* Single Save Entry Button at the very bottom */}
