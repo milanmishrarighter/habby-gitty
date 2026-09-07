@@ -288,12 +288,10 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
 
   return (
     <div
-      className={`p-4 rounded-lg flex flex-col space-y-3 transition-all duration-200 ${
-        !dayTypeChosen
-          ? "shadow-md"
-          : isRequiredToday
-            ? "shadow-lg ring-2 ring-blue-500"
-            : "shadow-sm opacity-60"
+      className={`p-4 rounded-lg flex flex-col space-y-3 shadow-md transition-all duration-200 ${
+        dayTypeChosen && isRequiredToday
+          ? "ring-4 ring-blue-500 ring-offset-2 shadow-lg"
+          : ""
       }`}
       style={{ backgroundColor: `${habit.color}33` }}
     >
@@ -318,16 +316,10 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
             {dates.length} days
           </span>
         )}
-        {dayTypeChosen && (
-          isRequiredToday ? (
-            <span className="bg-blue-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full">
-              Required today
-            </span>
-          ) : (
-            <span className="bg-white/70 text-gray-600 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-              Optional today
-            </span>
-          )
+        {dayTypeChosen && isRequiredToday && (
+          <span className="bg-blue-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            Required today
+          </span>
         )}
       </div>
 

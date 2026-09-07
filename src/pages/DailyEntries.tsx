@@ -1317,8 +1317,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         </div>
         {dayType && optionalHabitsCount > 0 && (
           <p className="mt-2 text-xs text-gray-500">
-            {requiredHabits.length} habit{requiredHabits.length === 1 ? " is" : "s are"} required on a {DAY_TYPE_LABELS[dayType].toLowerCase()} and {requiredHabits.length === 1 ? "is" : "are"} highlighted below.
-            {" "}The other {optionalHabitsCount} {optionalHabitsCount === 1 ? "is" : "are"} optional — fill {optionalHabitsCount === 1 ? "it" : "them"} in if you did {optionalHabitsCount === 1 ? "it" : "them"}, otherwise {optionalHabitsCount === 1 ? "it" : "they"} will be recorded as not required.
+            {requiredHabits.length} habit{requiredHabits.length === 1 ? " is" : "s are"} required on a {DAY_TYPE_LABELS[dayType].toLowerCase()} and {requiredHabits.length === 1 ? "is" : "are"} outlined below.
+            {" "}The other {optionalHabitsCount} can still be recorded as normal — {optionalHabitsCount === 1 ? "it" : "they"} just won't block saving.
           </p>
         )}
       </div>
