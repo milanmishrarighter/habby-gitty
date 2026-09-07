@@ -122,11 +122,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
   // Deactivated habits are retired: never tracked on new entries, history kept.
   const activeHabits = React.useMemo(() => habits.filter(habit => !habit.isDeactivated), [habits]);
-  const visibleHabits = React.useMemo(
+  // The day type is a marker, not a filter: every active habit stays on screen.
+  // The ones this day calls for are highlighted, and only those must be filled
+  // in before the entry can be saved.
+  const requiredHabits = React.useMemo(
     () => activeHabits.filter(habit => isHabitActiveOnDayType(habit.dayType, dayType)),
     [activeHabits, dayType],
   );
-  const hiddenHabitsCount = activeHabits.length - visibleHabits.length;
+  const isRequiredToday = React.useCallback(
+    (habit: Habit) => isHabitActiveOnDayType(habit.dayType, dayType),
+    [dayType],
+  );
+  const optionalHabitsCount = activeHabits.length - requiredHabits.length;
 
   // Effect to set default date, highlight, and show hint
   React.useEffect(() => {
@@ -571,7 +578,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
     // Every visible habit needs a value, a miss, or a hold — on every date.
     const missingHabits: string[] = [];
-    visibleHabits.forEach((habit) => {
+    requiredHabits.forEach((habit) => {
       const untrackedDates = activeDates.filter(date => {
         const record = dailyTracking[date]?.[habit.id];
         const values = record?.trackedValues;
@@ -726,8 +733,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
    * erase work already recorded against it.
    */
   const recordDifficultySkips = async () => {
-    const visibleIds = new Set(visibleHabits.map(h => h.id));
-    const skippedHabits = activeHabits.filter(h => !visibleIds.has(h.id));
+    const requiredIds = new Set(requiredHabits.map(h => h.id));
+    const skippedHabits = activeHabits.filter(h => !requiredIds.has(h.id));
     if (skippedHabits.length === 0) return;
 
     const records: {
@@ -1308,10 +1315,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             </button>
           ))}
         </div>
-        {dayType && hiddenHabitsCount > 0 && (
+        {dayType && optionalHabitsCount > 0 && (
           <p className="mt-2 text-xs text-gray-500">
-            {hiddenHabitsCount} habit{hiddenHabitsCount === 1 ? "" : "s"} hidden — not required on a {DAY_TYPE_LABELS[dayType].toLowerCase()}.
-            {" "}They'll be recorded as "not required" for {activeDates.length > 1 ? "these dates" : "this date"} when you save.
+            {requiredHabits.length} habit{requiredHabits.length === 1 ? " is" : "s are"} required on a {DAY_TYPE_LABELS[dayType].toLowerCase()} and {requiredHabits.length === 1 ? "is" : "are"} highlighted below.
+            {" "}The other {optionalHabitsCount} {optionalHabitsCount === 1 ? "is" : "are"} optional — fill {optionalHabitsCount === 1 ? "it" : "them"} in if you did {optionalHabitsCount === 1 ? "it" : "them"}, otherwise {optionalHabitsCount === 1 ? "it" : "they"} will be recorded as not required.
           </p>
         )}
       </div>
@@ -1465,10 +1472,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
               Click here to setup a new habit
             </button>
           </div>
-        ) : visibleHabits.length === 0 ? (
-          <div className="dotted-border-container">
-            <p className="text-lg">No habits are required on a {dayType ? DAY_TYPE_LABELS[dayType].toLowerCase() : "day"}.</p>
-          </div>
         ) : (
           <div className={cn(
             "grid gap-4",
@@ -1476,7 +1479,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
               ? "grid-cols-1 lg:grid-cols-2"
               : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"
           )}>
-            {visibleHabits.map((habit) => {
+            {activeHabits.map((habit) => {
               const trackingByDate: { [date: string]: TrackingState | undefined } = {};
               activeDates.forEach(date => {
                 trackingByDate[date] = dailyTracking[date]?.[habit.id];
@@ -1494,6 +1497,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
                   weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
                   monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
+                  isRequiredToday={isRequiredToday(habit)}
+                  dayTypeChosen={dayType !== null}
                 />
                 </div>
               );

@@ -33,6 +33,10 @@ interface DailyHabitTrackerCardProps {
   yearlyOutOfControlMissCounts: { [habitId: string]: YearlyOutOfControlMissCount };
   weeklyTrackingCounts: { [trackingValue: string]: number };
   monthlyTrackingCounts: { [trackingValue: string]: number };
+  /** Whether the chosen day type calls for this habit today. */
+  isRequiredToday: boolean;
+  /** False until a day type is picked, when nothing is highlighted yet. */
+  dayTypeChosen: boolean;
 }
 
 const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
@@ -45,6 +49,8 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   yearlyOutOfControlMissCounts,
   weeklyTrackingCounts,
   monthlyTrackingCounts,
+  isRequiredToday,
+  dayTypeChosen,
 }) => {
   const [isHoldLoading, setIsHoldLoading] = React.useState(false);
 
@@ -281,7 +287,16 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   };
 
   return (
-    <div className="p-4 rounded-lg shadow-md flex flex-col space-y-3" style={{ backgroundColor: `${habit.color}33` }}>
+    <div
+      className={`p-4 rounded-lg flex flex-col space-y-3 transition-all duration-200 ${
+        !dayTypeChosen
+          ? "shadow-md"
+          : isRequiredToday
+            ? "shadow-lg ring-2 ring-blue-500"
+            : "shadow-sm opacity-60"
+      }`}
+      style={{ backgroundColor: `${habit.color}33` }}
+    >
       <div className="flex items-center justify-between">
         <span className="text-gray-800 font-bold text-lg text-left">{habit.name}</span>
         <div className="flex items-center gap-2">
@@ -302,6 +317,17 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
           <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
             {dates.length} days
           </span>
+        )}
+        {dayTypeChosen && (
+          isRequiredToday ? (
+            <span className="bg-blue-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full">
+              Required today
+            </span>
+          ) : (
+            <span className="bg-white/70 text-gray-600 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+              Optional today
+            </span>
+          )
         )}
       </div>
 
