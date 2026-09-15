@@ -10,7 +10,7 @@ import {
   DailyHealthRecord, SavedMeal, MealEntry, CalorieSettings, mapSupabaseSavedMeal,
   SHITTY_DAY_GRADES, ShittyDayGrade, MissedDayEating, MISSED_DAY_EATING_LABELS, MISSED_DAY_FINES,
   CheatDayOutcome, CHEAT_DAY_OUTCOME_LABELS, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE,
-  CHEAT_DAY_OVER_FREE_PER_MONTH,
+  CHEAT_DAY_OVER_FREE_PER_MONTH, isCheatDayMeal,
 } from "@/types/health";
 import {
   calorieTotals, healthWarningsFor, AllowanceUsage,
@@ -235,6 +235,9 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
             ...record,
             isCheatDay: checked,
             cheatDayOutcome: checked ? (record.cheatDayOutcome ?? "under") : null,
+            // Unticking drops the stand-in cheat day meal so it can't be mistaken
+            // for food that was actually eaten.
+            meals: checked ? record.meals : record.meals.filter(meal => !isCheatDayMeal(meal)),
           })}
         />
       </label>

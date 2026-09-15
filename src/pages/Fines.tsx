@@ -87,7 +87,8 @@ const Fines: React.FC = () => {
       type: modalType,
       fine_amount: input.amount,
       cause: input.description,
-      habit_id: input.habitId || GENERAL_HABIT_SENTINEL,
+      // habit_id is a uuid; an entry not tied to a habit stores null.
+      habit_id: input.habitId || null,
       entry_date: input.date,
       status: 'unpaid',
       period_key: input.date,

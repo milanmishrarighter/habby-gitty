@@ -6,38 +6,32 @@ import { showError } from "@/utils/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  LineChart, Line, AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  ComposedChart, LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import { format, startOfYear, endOfYear, startOfMonth, endOfMonth, parseISO } from "date-fns";
+import { format, parseISO, startOfYear, endOfYear, eachMonthOfInterval } from "date-fns";
 import {
   DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, mapSupabaseHealthRecord,
-  SHITTY_DAY_GRADES, ShittyDayGrade,
+  SHITTY_DAY_GRADES,
 } from "@/types/health";
-import { calorieTotals, readCalorieSettings } from "@/utils/healthUtils";
+import { recordCalorieTotals, hasCalorieData, readCalorieSettings } from "@/utils/healthUtils";
 
-type Scope = "monthly" | "yearly";
-
-const SHITTY_DAY_COLORS: Record<ShittyDayGrade, string> = {
-  A: "#16a34a",
-  B: "#65a30d",
-  C: "#ea580c",
-  D: "#dc2626",
-};
+// Dates are plotted as timestamps on a numeric axis spanning the whole year, so
+// the chart keeps a true January-to-December scale even when days are missing.
+const dayTimestamp = (date: string) => parseISO(date).getTime();
 
 const HealthAnalytics: React.FC = () => {
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = React.useState(currentYear);
   const [records, setRecords] = React.useState<DailyHealthRecord[]>([]);
   const [settings, setSettings] = React.useState<CalorieSettings>(EMPTY_CALORIE_SETTINGS);
-  const [scope, setScope] = React.useState<Scope>("monthly");
-  const [anchor, setAnchor] = React.useState(format(new Date(), 'yyyy-MM-dd'));
   const [isLoading, setIsLoading] = React.useState(true);
 
-  const range = React.useMemo(() => {
-    const date = parseISO(anchor);
-    return scope === "yearly"
-      ? { start: startOfYear(date), end: endOfYear(date) }
-      : { start: startOfMonth(date), end: endOfMonth(date) };
-  }, [anchor, scope]);
+  const yearStart = startOfYear(new Date(year, 0, 1));
+  const yearEnd = endOfYear(yearStart);
+  const xDomain: [number, number] = [yearStart.getTime(), yearEnd.getTime()];
+  const monthTicks = eachMonthOfInterval({ start: yearStart, end: yearEnd }).map(d => d.getTime());
+  const years = Array.from({ length: 6 }, (_, i) => currentYear - i);
 
   React.useEffect(() => {
     const load = async () => {
@@ -53,8 +47,8 @@ const HealthAnalytics: React.FC = () => {
       const { data, error } = await supabase
         .from('daily_health')
         .select('*')
-        .gte('date', format(range.start, 'yyyy-MM-dd'))
-        .lte('date', format(range.end, 'yyyy-MM-dd'))
+        .gte('date', `${year}-01-01`)
+        .lte('date', `${year}-12-31`)
         .order('date', { ascending: true });
 
       if (error) {
@@ -67,84 +61,83 @@ const HealthAnalytics: React.FC = () => {
       setIsLoading(false);
     };
     load();
-  }, [range]);
+  }, [year]);
 
   const calorieData = React.useMemo(() => records
-    .filter(record => record.meals.length > 0)
+    .filter(hasCalorieData)
     .map(record => {
-      const totals = calorieTotals(record.meals, record.caloriesBurned);
+      const totals = recordCalorieTotals(record);
       return {
-        date: format(parseISO(record.date), scope === 'yearly' ? 'd MMM' : 'd MMM'),
+        day: dayTimestamp(record.date),
         min: Math.round(totals.min),
         max: Math.round(totals.max),
         average: Math.round(totals.average),
       };
-    }), [records, scope]);
+    }), [records]);
 
   const weightData = React.useMemo(() => records
     .filter(record => record.weightChecked && record.weight !== null)
-    .map(record => ({
-      date: format(parseISO(record.date), 'd MMM'),
-      weight: record.weight as number,
-    })), [records]);
+    .map(record => ({ day: dayTimestamp(record.date), weight: record.weight as number })), [records]);
 
-  const shittyDayData = React.useMemo(() => {
-    const counts: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
-    records.forEach(record => {
-      if (record.shittyDay) counts[record.shittyDay] += 1;
-    });
-    return SHITTY_DAY_GRADES.map(grade => ({ grade, days: counts[grade] }));
-  }, [records]);
+  // One row per month: how many days were graded, and how many got each grade.
+  const shittyDayRows = React.useMemo(() => eachMonthOfInterval({ start: yearStart, end: yearEnd })
+    .map(monthStart => {
+      const monthKey = format(monthStart, 'yyyy-MM');
+      const counts = { A: 0, B: 0, C: 0, D: 0 };
+      records.forEach(record => {
+        if (record.shittyDay && record.date.startsWith(monthKey)) counts[record.shittyDay] += 1;
+      });
+      const total = counts.A + counts.B + counts.C + counts.D;
+      return { month: format(monthStart, 'MMMM'), total, ...counts };
+    }), [records, year]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const missedDays = React.useMemo(
-    () => records.filter(record => record.missedDay).length,
-    [records],
+  const shittyDayTotals = shittyDayRows.reduce(
+    (sum, row) => ({
+      total: sum.total + row.total,
+      A: sum.A + row.A, B: sum.B + row.B, C: sum.C + row.C, D: sum.D + row.D,
+    }),
+    { total: 0, A: 0, B: 0, C: 0, D: 0 },
   );
 
   const summary = React.useMemo(() => {
     if (calorieData.length === 0) return null;
     const averages = calorieData.map(d => d.average);
-    const onTarget = settings.target
-      ? calorieData.filter(d => d.average <= settings.target).length
-      : 0;
     return {
       days: calorieData.length,
       mean: Math.round(averages.reduce((a, b) => a + b, 0) / averages.length),
+      onTarget: settings.target ? calorieData.filter(d => d.average <= settings.target).length : 0,
       lowest: Math.min(...averages),
       highest: Math.max(...averages),
-      onTarget,
     };
   }, [calorieData, settings.target]);
 
-  const periodLabel = format(range.start, scope === 'yearly' ? 'yyyy' : 'MMMM yyyy');
+  const missedDays = records.filter(record => record.missedDay).length;
+
+  const xAxisProps = {
+    dataKey: "day",
+    type: "number" as const,
+    scale: "time" as const,
+    domain: xDomain,
+    ticks: monthTicks,
+    tickFormatter: (value: number) => format(new Date(value), 'MMM'),
+    tick: { fontSize: 12 },
+  };
+  const tooltipLabel = (value: number) => format(new Date(value), 'EEE, d MMM yyyy');
 
   return (
     <div id="health-analytics" className="tab-content">
       <h2 className="text-2xl font-bold text-gray-800 mb-4 text-center">Health Analytics</h2>
-      <p className="text-gray-600 mb-6 text-center">Your calorie intake and weight over time.</p>
+      <p className="text-gray-600 mb-6 text-center">Your calorie intake, weight and day grades across a year.</p>
 
-      <div className="flex flex-wrap items-end justify-center gap-4 mb-6">
+      <div className="flex justify-center mb-6">
         <div className="flex flex-col items-start">
-          <label className="text-sm font-medium text-gray-700 mb-1">View</label>
-          <Select value={scope} onValueChange={(value) => setScope(value as Scope)}>
-            <SelectTrigger className="w-40 bg-white"><SelectValue /></SelectTrigger>
+          <label className="text-sm font-medium text-gray-700 mb-1">Year</label>
+          <Select value={String(year)} onValueChange={(value) => setYear(Number(value))}>
+            <SelectTrigger className="w-32 bg-white"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="monthly">Monthly</SelectItem>
-              <SelectItem value="yearly">Yearly</SelectItem>
+              {years.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
             </SelectContent>
           </Select>
-        </div>
-        <div className="flex flex-col items-start">
-          <label htmlFor="health-anchor" className="text-sm font-medium text-gray-700 mb-1">
-            {scope === 'yearly' ? 'Any date in the year' : 'Any date in the month'}
-          </label>
-          <input
-            type="date"
-            id="health-anchor"
-            className="p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={anchor}
-            onChange={(e) => setAnchor(e.target.value)}
-          />
         </div>
       </div>
 
@@ -152,24 +145,28 @@ const HealthAnalytics: React.FC = () => {
         <p className="text-center text-gray-500">Loading...</p>
       ) : (
         <div className="space-y-6">
-          {summary && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
-                <p className="text-xs text-gray-600">Days logged</p>
-                <p className="text-xl font-bold text-gray-800">{summary.days}</p>
-              </div>
-              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
-                <p className="text-xs text-blue-700">Average intake</p>
-                <p className="text-xl font-bold text-blue-800">{summary.mean}</p>
-              </div>
-              <div className="p-3 rounded-lg bg-green-50 border border-green-200">
-                <p className="text-xs text-green-700">Days on target</p>
-                <p className="text-xl font-bold text-green-800">{summary.onTarget}</p>
-              </div>
-              <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
-                <p className="text-xs text-gray-600">Range</p>
-                <p className="text-xl font-bold text-gray-800">{summary.lowest}–{summary.highest}</p>
-              </div>
+          {(summary || missedDays > 0) && (
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {summary && (
+                <>
+                  <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                    <p className="text-xs text-gray-600">Days logged</p>
+                    <p className="text-xl font-bold text-gray-800">{summary.days}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                    <p className="text-xs text-blue-700">Average intake</p>
+                    <p className="text-xl font-bold text-blue-800">{summary.mean}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-green-50 border border-green-200">
+                    <p className="text-xs text-green-700">Days on target</p>
+                    <p className="text-xl font-bold text-green-800">{summary.onTarget}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                    <p className="text-xs text-gray-600">Range</p>
+                    <p className="text-xl font-bold text-gray-800">{summary.lowest}–{summary.highest}</p>
+                  </div>
+                </>
+              )}
               {missedDays > 0 && (
                 <div className="p-3 rounded-lg bg-red-50 border border-red-200">
                   <p className="text-xs text-red-700">Days missed</p>
@@ -181,89 +178,109 @@ const HealthAnalytics: React.FC = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Calories — {periodLabel}</CardTitle>
+              <CardTitle className="text-lg">Calories — {year}</CardTitle>
             </CardHeader>
             <CardContent>
               {calorieData.length === 0 ? (
-                <p className="text-gray-500 text-sm">No meals recorded in this period.</p>
+                <p className="text-gray-500 text-sm">No calories recorded in {year}.</p>
               ) : (
-                <div className="w-full overflow-x-auto">
-                  <ResponsiveContainer width="100%" height={320} minWidth={320}>
-                    <AreaChart data={calorieData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} />
-                      <Tooltip />
-                      <Legend />
-                      <Area type="monotone" dataKey="max" name="Max" stroke="#dc2626" fill="#fecaca" />
-                      <Area type="monotone" dataKey="min" name="Min" stroke="#16a34a" fill="#bbf7d0" />
-                      <Line type="monotone" dataKey="average" name="Average" stroke="#2563eb" dot={false} />
-                      {settings.target > 0 && (
-                        <ReferenceLine y={settings.target} stroke="#16a34a" strokeDasharray="4 4"
-                          label={{ value: "Target", position: "insideTopRight", fontSize: 11 }} />
-                      )}
-                      {settings.maintaining > 0 && (
-                        <ReferenceLine y={settings.maintaining} stroke="#ca8a04" strokeDasharray="4 4"
-                          label={{ value: "Maintaining", position: "insideTopRight", fontSize: 11 }} />
-                      )}
-                      {settings.cheatDay > 0 && (
-                        <ReferenceLine y={settings.cheatDay} stroke="#dc2626" strokeDasharray="4 4"
-                          label={{ value: "Cheat day", position: "insideTopRight", fontSize: 11 }} />
-                      )}
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+                <>
+                  <div className="w-full overflow-x-auto">
+                    <ResponsiveContainer width="100%" height={340} minWidth={560}>
+                      <ComposedChart data={calorieData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis {...xAxisProps} />
+                        <YAxis tick={{ fontSize: 12 }} />
+                        <Tooltip labelFormatter={tooltipLabel} />
+                        <Legend />
+                        <Area type="monotone" dataKey="max" name="Max" stroke="#dc2626" fill="#fecaca" />
+                        <Area type="monotone" dataKey="min" name="Min" stroke="#16a34a" fill="#bbf7d0" />
+                        <Line type="monotone" dataKey="average" name="Average" stroke="#2563eb" dot={false} strokeWidth={2} />
+                        {settings.target > 0 && (
+                          <ReferenceLine y={settings.target} stroke="#16a34a" strokeDasharray="4 4"
+                            label={{ value: "Target", position: "insideTopRight", fontSize: 11 }} />
+                        )}
+                        {settings.maintaining > 0 && (
+                          <ReferenceLine y={settings.maintaining} stroke="#ca8a04" strokeDasharray="4 4"
+                            label={{ value: "Maintaining", position: "insideTopRight", fontSize: 11 }} />
+                        )}
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Cheat days are plotted at 3500 kcal, or 4250 kcal when you went over. Missed days aren't plotted.
+                  </p>
+                </>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Shitty days — {periodLabel}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {shittyDayData.every(d => d.days === 0) ? (
-                <p className="text-gray-500 text-sm">No day grades recorded in this period.</p>
-              ) : (
-                <div className="w-full overflow-x-auto">
-                  <ResponsiveContainer width="100%" height={240} minWidth={320}>
-                    <BarChart data={shittyDayData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="grade" tick={{ fontSize: 12 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip />
-                      <Bar dataKey="days" name="Days" radius={[4, 4, 0, 0]}>
-                        {shittyDayData.map((entry) => (
-                          <Cell key={entry.grade} fill={SHITTY_DAY_COLORS[entry.grade as ShittyDayGrade]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Weight — {periodLabel}</CardTitle>
+              <CardTitle className="text-lg">Weight — {year}</CardTitle>
             </CardHeader>
             <CardContent>
               {weightData.length === 0 ? (
-                <p className="text-gray-500 text-sm">No weight recorded in this period.</p>
+                <p className="text-gray-500 text-sm">No weight recorded in {year}.</p>
               ) : (
                 <div className="w-full overflow-x-auto">
-                  <ResponsiveContainer width="100%" height={300} minWidth={320}>
-                    <LineChart data={weightData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <ResponsiveContainer width="100%" height={300} minWidth={560}>
+                    <LineChart data={weightData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                      <XAxis {...xAxisProps} />
                       <YAxis domain={['dataMin - 1', 'dataMax + 1']} tick={{ fontSize: 12 }} />
-                      <Tooltip />
+                      <Tooltip labelFormatter={tooltipLabel} />
                       <Line type="monotone" dataKey="weight" name="Weight (kg)" stroke="#7c3aed" strokeWidth={2} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Shitty days — {year}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="w-full overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-gray-600">
+                      <th className="text-left font-semibold py-2 pr-3">Month</th>
+                      <th className="text-right font-semibold py-2 px-3">Total shitty days</th>
+                      {SHITTY_DAY_GRADES.map(grade => (
+                        <th key={grade} className="text-right font-semibold py-2 px-3">{grade}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shittyDayRows.map(row => (
+                      <tr key={row.month} className="border-b border-gray-100">
+                        <td className="py-2 pr-3 text-gray-800">{row.month}</td>
+                        <td className="py-2 px-3 text-right font-semibold text-gray-800 tabular-nums">{row.total}</td>
+                        {SHITTY_DAY_GRADES.map(grade => (
+                          <td
+                            key={grade}
+                            className={`py-2 px-3 text-right tabular-nums ${row[grade] === 0 ? "text-gray-300" : "text-gray-700"}`}
+                          >
+                            {row[grade]}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-300 font-semibold text-gray-800">
+                      <td className="py-2 pr-3">Year</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{shittyDayTotals.total}</td>
+                      {SHITTY_DAY_GRADES.map(grade => (
+                        <td key={grade} className="py-2 px-3 text-right tabular-nums">{shittyDayTotals[grade]}</td>
+                      ))}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </CardContent>
           </Card>
         </div>

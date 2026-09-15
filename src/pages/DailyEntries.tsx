@@ -22,7 +22,7 @@ import UpcomingReminders from "@/components/UpcomingReminders";
 import SupabaseUsage from "@/components/SupabaseUsage";
 import {
   DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord,
-  MISSED_DAY_FINES, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE, CHEAT_DAY_OVER_FREE_PER_MONTH,
+  MISSED_DAY_FINES, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE, CHEAT_DAY_OVER_FREE_PER_MONTH, cheatDayMeal,
 } from "@/types/health";
 import { readCalorieSettings, calorieTotals, calorieBandFor, summariseWeek, AllowanceUsage } from "@/utils/healthUtils";
 import {
@@ -269,21 +269,41 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     const entryDateObj = new Date(entryDateStr);
     const weekStart = startOfWeek(entryDateObj, { weekStartsOn: 1 });
     const periodKey = format(weekStart, "yyyy-'W'ww");
+    // Keyed on the date alone: the gap grows every day, so keying on it would
+    // charge again each day the same late date is opened.
+    const trackingValue = `ENTRY_MISS:${entryDateStr}`;
+
+    // Opening a date that already has an entry isn't recording it late.
+    const { data: existingEntry } = await supabase
+      .from('daily_entries')
+      .select('id')
+      .eq('date', entryDateStr)
+      .maybeSingle();
+    if (existingEntry) return;
+
+    // habit_id is null for fines not tied to a habit, and nulls never match in
+    // an ON CONFLICT, so check for the row explicitly rather than upserting.
+    const { data: existingFine } = await supabase
+      .from('fines_status')
+      .select('id')
+      .eq('tracking_value', trackingValue)
+      .maybeSingle();
+    if (existingFine) return;
+
     const fineData = {
       period_key: periodKey,
-      habit_id: "___system___", // special system fine
+      habit_id: null,
       fine_amount: 500,
       cause: `Daily entry for ${entryDateStr} is being recorded ${gap} days late (limit: 3 days).`,
       status: "unpaid",
-      tracking_value: `ENTRY_MISS:${entryDateStr}:${gap}`, // unique per date to avoid duplicates
+      tracking_value: trackingValue,
       condition_count: 3,
       actual_count: gap,
       type: "fine",
       entry_date: entryDateStr,
+      is_auto: true,
     };
-    const { error } = await supabase
-      .from('fines_status')
-      .upsert(fineData, { onConflict: 'period_key,habit_id,tracking_value' });
+    const { error } = await supabase.from('fines_status').insert([fineData]);
     if (error) {
       console.error("Error adding missed-entry fine:", error);
     } else {
@@ -864,8 +884,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
       rows.push({
         date,
-        // A missed day or a cheat day stands in for the meal log, so neither keeps meals.
-        meals: record.missedDay || record.isCheatDay ? [] : record.meals,
+        // A missed day has no meals. A cheat day is stored as one stand-in meal
+        // at a fixed 3500 or 4250 kcal, so its calories count everywhere else.
+        meals: record.missedDay
+          ? []
+          : record.isCheatDay
+            ? [cheatDayMeal(record.cheatDayOutcome ?? 'under')]
+            : record.meals,
         calories_burned: record.missedDay || record.isCheatDay ? 0 : record.caloriesBurned,
         is_cheat_day: record.missedDay ? false : record.isCheatDay,
         cheat_day_outcome: !record.missedDay && record.isCheatDay ? (record.cheatDayOutcome ?? 'under') : null,
@@ -1025,7 +1050,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       type: input.type,
       fine_amount: input.amount,
       cause: input.cause,
-      habit_id: '___general___',
+      habit_id: null,
       entry_date: input.date,
       status: 'unpaid',
       period_key: input.date,

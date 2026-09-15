@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChevronsUpDown } from "lucide-react";
 import { DailyHealthRecord, mapSupabaseHealthRecord, MISSED_DAY_EATING_LABELS, CHEAT_DAY_OUTCOME_LABELS } from "@/types/health";
-import { calorieTotals } from "@/utils/healthUtils";
+import { recordCalorieTotals, hasCalorieData } from "@/utils/healthUtils";
 
 interface HealthForDateProps {
   date: string;
@@ -52,14 +52,14 @@ const HealthForDate: React.FC<HealthForDateProps> = ({ date }) => {
     };
   }, [date]);
 
-  const totals = record ? calorieTotals(record.meals, record.caloriesBurned) : null;
+  const totals = record && hasCalorieData(record) ? recordCalorieTotals(record) : null;
 
   const headline = !record
     ? ""
     : record.missedDay
       ? " — missed"
       : record.isCheatDay
-        ? " — cheat day"
+        ? ` — cheat day, ${totals?.max ?? ""} kcal`
       : record.meals.length > 0 && totals
         ? ` — ${Math.round(totals.min)}–${Math.round(totals.max)} kcal`
         : "";
@@ -111,7 +111,7 @@ const HealthForDate: React.FC<HealthForDateProps> = ({ date }) => {
                   <p>Burned through exercise/walking: {record.caloriesBurned} kcal</p>
                 )}
 
-                {record.meals.length > 0 && totals && (
+                {totals && (
                   <p className="font-medium">
                     Total: <span className="text-green-700">{Math.round(totals.min)}</span>
                     {" – "}

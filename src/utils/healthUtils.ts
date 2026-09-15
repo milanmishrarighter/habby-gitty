@@ -1,4 +1,4 @@
-import { DailyHealthRecord, CalorieSettings, MealEntry } from "@/types/health";
+import { DailyHealthRecord, CalorieSettings, MealEntry, CHEAT_DAY_RECORDED_KCAL } from "@/types/health";
 
 export interface CalorieTotals {
   min: number;
@@ -15,6 +15,22 @@ export const calorieTotals = (
   const max = meals.reduce((sum, meal) => sum + (Number(meal.maxCalorie) || 0), 0) - (caloriesBurned || 0);
   return { min, max, average: (min + max) / 2 };
 };
+
+/**
+ * The calories a whole day counts as. A cheat day is a fixed figure by outcome,
+ * even if it was saved before its stand-in meal row existed.
+ */
+export const recordCalorieTotals = (record: DailyHealthRecord): CalorieTotals => {
+  if (record.isCheatDay && !record.missedDay) {
+    const kcal = CHEAT_DAY_RECORDED_KCAL[record.cheatDayOutcome ?? "under"];
+    return { min: kcal, max: kcal, average: kcal };
+  }
+  return calorieTotals(record.meals, record.caloriesBurned);
+};
+
+/** Whether the day has any calorie figure to chart. Missed days have none. */
+export const hasCalorieData = (record: DailyHealthRecord): boolean =>
+  !record.missedDay && (record.isCheatDay || record.meals.length > 0);
 
 export type CalorieBand = "target" | "maintaining" | "cheat" | "over" | "unset";
 

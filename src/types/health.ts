@@ -27,6 +27,28 @@ export const CHEAT_DAY_OUTCOME_LABELS: Record<CheatDayOutcome, string> = {
   over: `I definitely ate more than ${CHEAT_DAY_LIMIT_KCAL} cals`,
 };
 
+/**
+ * The calories a cheat day is recorded as, since its meals aren't logged.
+ * Over the limit is booked at a fixed 4250 rather than an unknown real figure.
+ */
+export const CHEAT_DAY_RECORDED_KCAL: Record<CheatDayOutcome, number> = {
+  under: 3500,
+  over: 4250,
+};
+
+/** Name of the single meal row a cheat day is stored as. */
+const CHEAT_DAY_MEAL_NAME = "Cheat day";
+
+export const cheatDayMeal = (outcome: CheatDayOutcome): MealEntry => ({
+  foodName: `${CHEAT_DAY_MEAL_NAME} — ${CHEAT_DAY_OUTCOME_LABELS[outcome].toLowerCase()}`,
+  minCalorie: CHEAT_DAY_RECORDED_KCAL[outcome],
+  maxCalorie: CHEAT_DAY_RECORDED_KCAL[outcome],
+});
+
+/** Whether a meal row is the stand-in written for a cheat day, not real food. */
+export const isCheatDayMeal = (meal: MealEntry): boolean =>
+  meal.foodName.startsWith(`${CHEAT_DAY_MEAL_NAME} — `);
+
 /** Every cheat day kept under the limit earns this. */
 export const CHEAT_DAY_UNDER_REWARD = 100;
 /** Going over is allowed this many times a calendar month without a fine. */
