@@ -6,6 +6,7 @@ import Fines from "./pages/Fines";
 import HabitSetup from "./pages/HabitSetup";
 import YearlyAnalytics from "./pages/YearlyAnalytics";
 import HealthAnalytics from "./pages/HealthAnalytics";
+import Reminders from "./pages/Reminders";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -141,6 +142,15 @@ const App = () => {
             Health Analytics
           </button>
           <button
+            data-tab="reminders"
+            className={`tab-button px-4 py-2 text-sm sm:text-base font-medium rounded-t-lg transition-all duration-300 ease-in-out ${
+              activeTab === "reminders" ? "text-blue-600 border-blue-500 active" : "text-gray-700 bg-white border-b-2 border-transparent hover:border-blue-500"
+            }`}
+            onClick={() => setActiveTab("reminders")}
+          >
+            Reminders
+          </button>
+          <button
             data-tab="settings"
             className={`tab-button px-4 py-2 text-sm sm:text-base font-medium rounded-t-lg transition-all duration-300 ease-in-out ${
               activeTab === "settings" ? "text-blue-600 border-blue-500 active" : "text-gray-700 bg-white border-b-2 border-transparent hover:border-blue-500"
@@ -157,6 +167,7 @@ const App = () => {
         {activeTab === "setup" && <HabitSetup />}
         {activeTab === "yearly-analytics" && <YearlyAnalytics />}
         {activeTab === "health-analytics" && <HealthAnalytics />}
+        {activeTab === "reminders" && <Reminders />}
         {activeTab === "settings" && <Settings />}
       </div>
     </div>

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import TrackedForDate from "@/components/TrackedForDate";
+import HealthForDate from "@/components/HealthForDate";
 
 interface HabitFilterState {
   [habitId: string]: {
@@ -368,6 +369,7 @@ const RecordedEntries: React.FC = () => {
 
                   {/* Per-card tracked habits fetched directly */}
                   <TrackedForDate date={entry.date} allHabits={allHabits} />
+                  <HealthForDate date={entry.date} />
                 </CardHeader>
 
                 <CardContent className="flex-grow">

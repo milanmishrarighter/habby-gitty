@@ -34,6 +34,8 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
   const [editingMealId, setEditingMealId] = React.useState<string | null>(null);
   const [editMin, setEditMin] = React.useState<number | "">("");
   const [editMax, setEditMax] = React.useState<number | "">("");
+  // Kept so focus can go straight back to the food field after adding a meal.
+  const foodInputRef = React.useRef<HTMLInputElement>(null);
 
   const loadSavedMeals = React.useCallback(async () => {
     const { data, error } = await supabase
@@ -85,7 +87,16 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
 
     onChange({ ...record, meals: [...record.meals, meal] });
 
-    if (saveThisMeal) {
+    // Clear the fields and put the cursor back in the food box immediately, so
+    // the next meal can be typed without the on-screen keyboard dropping away.
+    setFoodName("");
+    setMinCalorie("");
+    setMaxCalorie("");
+    const shouldSaveForReuse = saveThisMeal;
+    setSaveThisMeal(false);
+    foodInputRef.current?.focus();
+
+    if (shouldSaveForReuse) {
       const { error } = await supabase
         .from('saved_meals')
         .upsert({
@@ -104,10 +115,6 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
       }
     }
 
-    setFoodName("");
-    setMinCalorie("");
-    setMaxCalorie("");
-    setSaveThisMeal(false);
   };
 
   const removeMeal = (index: number) => {
@@ -236,6 +243,8 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
             <input
               type="text"
               id={`food-eaten-${uid}`}
+              ref={foodInputRef}
+              enterKeyHint="next"
               placeholder="Food eaten"
               autoComplete="off"
               className="p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
@@ -265,6 +274,9 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
           </div>
           <input
             type="number"
+            inputMode="numeric"
+            enterKeyHint="done"
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addMeal(); } }}
             placeholder="Min kcal"
             className="p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
             value={minCalorie}
@@ -272,12 +284,23 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
           />
           <input
             type="number"
+            inputMode="numeric"
+            enterKeyHint="done"
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addMeal(); } }}
             placeholder="Max kcal"
             className="p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
             value={maxCalorie}
             onChange={(e) => setMaxCalorie(e.target.value === "" ? "" : Number(e.target.value))}
           />
-          <Button type="button" onClick={addMeal} className="shrink-0">Add</Button>
+          <Button
+            type="button"
+            onPointerDown={(e) => e.preventDefault()}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={addMeal}
+            className="shrink-0"
+          >
+            Add
+          </Button>
         </div>
 
         <label htmlFor={`save-this-meal-${uid}`} className="flex items-center gap-2 mt-2 text-sm text-gray-700 cursor-pointer">

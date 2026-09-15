@@ -7,7 +7,7 @@ import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal"
 import { showSuccess, showError, showInfo, dismissToast } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
-import { YearlyOutOfControlMissCount, WeeklyOffRecord, YearlyNothingsCount } from "@/types/tracking";
+import { YearlyOutOfControlMissCount, WeeklyOffRecord } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays, isMonday, getISOWeek, eachDayOfInterval } from 'date-fns';
@@ -17,6 +17,9 @@ import { Switch } from "@/components/ui/switch";
 import { AppSettings } from "@/types/appSettings";
 import { runConditionsForHabits } from "@/utils/conditionRunner";
 import HealthCard from "@/components/HealthCard";
+import SaveProgressDialog, { SaveStep } from "@/components/SaveProgressDialog";
+import UpcomingReminders from "@/components/UpcomingReminders";
+import SupabaseUsage from "@/components/SupabaseUsage";
 import { DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord, MISSED_DAY_FINES } from "@/types/health";
 import { readCalorieSettings, calorieTotals, calorieBandFor, summariseWeek, AllowanceUsage } from "@/utils/healthUtils";
 import {
@@ -59,7 +62,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [entryDate, setEntryDate] = React.useState(getTodayDate());
   const [isRangeMode, setIsRangeMode] = React.useState(false);
   const [rangeEndDate, setRangeEndDate] = React.useState(getTodayDate());
-  const [dayType, setDayType] = React.useState<DayType | null>(null);
+  // One day type per date, so each day of a range can be marked on its own.
+  const [dayTypeByDate, setDayTypeByDate] = React.useState<{ [date: string]: DayType | null }>({});
   const [journalText, setJournalText] = React.useState("");
   const [moodEmoji, setMoodEmoji] = React.useState("");
   const [newLearningText, setNewLearningText] = React.useState("");
@@ -86,11 +90,17 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [isWeekOffLoading, setIsWeekOffLoading] = React.useState(false);
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
 
-  // "Nothing learned" feature
-  const [yearlyNothingsCount, setYearlyNothingsCount] = React.useState<YearlyNothingsCount | null>(null);
-  const [isNothingButtonLoading, setIsNothingButtonLoading] = React.useState(false);
   const [missedDaysGap, setMissedDaysGap] = React.useState<number>(0);
   const missedFineAppliedForDateRef = React.useRef<string | null>(null);
+
+  // Save progress dialog
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = React.useState(false);
+  const [saveSteps, setSaveSteps] = React.useState<SaveStep[]>([]);
+  const [saveFinished, setSaveFinished] = React.useState(false);
+  const [saveSucceeded, setSaveSucceeded] = React.useState(false);
+  const [saveSummary, setSaveSummary] = React.useState<string[]>([]);
+  // The last date written by a successful save; where "next empty date" starts.
+  const savedThroughDateRef = React.useRef<string | null>(null);
 
   // Health
   const [healthRecords, setHealthRecords] = React.useState<{ [date: string]: DailyHealthRecord }>({});
@@ -125,15 +135,17 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   // The day type is a marker, not a filter: every active habit stays on screen.
   // The ones this day calls for are highlighted, and only those must be filled
   // in before the entry can be saved.
-  const requiredHabits = React.useMemo(
-    () => activeHabits.filter(habit => isHabitActiveOnDayType(habit.dayType, dayType)),
-    [activeHabits, dayType],
+  const dayTypeFor = React.useCallback(
+    (date: string): DayType | null => dayTypeByDate[date] ?? null,
+    [dayTypeByDate],
   );
-  const isRequiredToday = React.useCallback(
-    (habit: Habit) => isHabitActiveOnDayType(habit.dayType, dayType),
-    [dayType],
+  const setDayTypeFor = (date: string, type: DayType | null) =>
+    setDayTypeByDate(prev => ({ ...prev, [date]: type }));
+  /** Whether the day type chosen for `date` calls for this habit. */
+  const isRequiredOn = React.useCallback(
+    (habit: Habit, date: string) => isHabitActiveOnDayType(habit.dayType, dayTypeFor(date)),
+    [dayTypeFor],
   );
-  const optionalHabitsCount = activeHabits.length - requiredHabits.length;
 
   // Effect to set default date, highlight, and show hint
   React.useEffect(() => {
@@ -365,7 +377,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setMonthlyTrackingCounts({});
       setCurrentWeekOffRecord(null);
       setUsedWeekOffsCount(0);
-      setYearlyNothingsCount(null);
       return;
     }
 
@@ -392,10 +403,15 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setEntryIdsByDate({});
     } else {
       const ids: { [date: string]: string } = {};
+      const loadedDayTypes: { [date: string]: DayType | null } = {};
+      activeDates.forEach(date => { loadedDayTypes[date] = null; });
       (entriesData || []).forEach(row => {
-        ids[format(new Date(row.date), 'yyyy-MM-dd')] = row.id;
+        const date = format(new Date(row.date), 'yyyy-MM-dd');
+        ids[date] = row.id;
+        loadedDayTypes[date] = (row.day_type as DayType) || null;
       });
       setEntryIdsByDate(ids);
+      setDayTypeByDate(loadedDayTypes);
 
       // The written entry lives on the last date of the span, so prefill from
       // there and fall back to the latest entry that isn't just a pointer.
@@ -409,13 +425,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         setMoodEmoji(existing.mood || "");
         setNewLearningText(isSummaryPointer(existing.new_learning_text) ? "" : (existing.new_learning_text || ""));
         setMiscTextTracking(isSummaryPointer(existing.misc_text_tracking) ? "" : (existing.misc_text_tracking || ""));
-        setDayType((existing.day_type as DayType) || null);
+
       } else {
         setJournalText("");
         setMoodEmoji("");
         setNewLearningText("");
         setMiscTextTracking("");
-        setDayType(null);
+
       }
     }
 
@@ -496,26 +512,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setUsedWeekOffsCount(weekOffsData.filter(wo => wo.is_off).length);
     }
 
-    // Fetch yearly nothings count for the current year and user
-    if (user) {
-      const { data: nothingsCountData, error: nothingsCountError } = await supabase
-        .from('yearly_nothings_counts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('year', currentYear)
-        .single();
-
-      if (nothingsCountError && nothingsCountError.code !== 'PGRST116') {
-        console.error("Error fetching yearly nothings count:", nothingsCountError);
-        showError("Failed to load yearly 'nothing' count.");
-        setYearlyNothingsCount(null);
-      } else if (nothingsCountData) {
-        setYearlyNothingsCount(nothingsCountData as YearlyNothingsCount);
-      } else {
-        setYearlyNothingsCount(null);
-      }
-    }
-
     // Health: load the record for the summary date, plus the surrounding week so
     // the target/maintaining allowances can be counted.
     const { data: healthRows, error: healthError } = await supabase
@@ -570,16 +566,24 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       problems.push({ label, elementId });
     };
 
-    if (!dayType) flagMissing("Day Type", "day-type-selector");
+    activeDates.forEach(date => {
+      if (!dayTypeFor(date)) {
+        flagMissing(
+          activeDates.length > 1 ? `Day Type (${format(new Date(date), 'd MMM')})` : "Day Type",
+          `day-type-${date}`,
+        );
+      }
+    });
     if (!journalText.trim()) flagMissing("Journal Entry", "journal-entry");
-    if (!newLearningText.trim()) flagMissing("What's something new you learned today", "new-learning-text");
     if (!miscTextTracking.trim()) flagMissing("Misc. text tracking", "misc-text-tracking");
     if (!moodEmoji) flagMissing("Mood of the Day", "mood-picker");
 
     // Every visible habit needs a value, a miss, or a hold — on every date.
     const missingHabits: string[] = [];
-    requiredHabits.forEach((habit) => {
+    activeHabits.forEach((habit) => {
       const untrackedDates = activeDates.filter(date => {
+        // Only dates whose day type calls for this habit can block the save.
+        if (!isRequiredOn(habit, date)) return false;
         const record = dailyTracking[date]?.[habit.id];
         const values = record?.trackedValues;
         // A week off or a temporary hold counts as handled; a stale skip marker
@@ -606,15 +610,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       return;
     }
 
-    const currentYear = new Date(activeDates[0]).getFullYear().toString();
-    const yearlyNothingsAllowed = appSettings?.settings_data?.yearly_nothings_allowed || 0;
-    const currentNothingsCount = yearlyNothingsCount?.count || 0;
-
-    if (newLearningText.toLowerCase() === 'nothing' && currentNothingsCount >= yearlyNothingsAllowed && yearlyNothingsAllowed > 0) {
-      showError(`You have used all ${yearlyNothingsAllowed} allowed "nothing" entries for new learning this year. Please enter something new.`);
-      return;
-    }
-
     const existingDates = activeDates.filter(date => entryIdsByDate[date]);
     if (existingDates.length > 0 && !overwrite) {
       setPendingOverwriteDates(existingDates);
@@ -622,9 +617,119 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       return;
     }
 
+    setShowOverwriteConfirmModal(false);
+    setPendingOverwriteDates([]);
+    await runSavePipeline();
+  };
+
+  // --- Save pipeline --------------------------------------------------------
+
+  const SAVE_STEPS: { id: string; label: string }[] = [
+    { id: "entry", label: "Saving journal entry" },
+    { id: "skips", label: "Marking habits the day didn't require" },
+    { id: "health", label: "Saving health details" },
+    { id: "learning", label: "Checking the learning reward" },
+    { id: "conditions", label: "Checking habit conditions, fines, rewards and emails" },
+  ];
+
+  const updateSaveStep = (id: string, patch: Partial<SaveStep>) =>
+    setSaveSteps(prev => prev.map(step => (step.id === id ? { ...step, ...patch } : step)));
+
+  /**
+   * Runs one step and records its outcome in the dialog. A failing step never
+   * stops the ones after it — except the entry itself, which everything else
+   * depends on. Returns false only when the step failed.
+   */
+  const runSaveStep = async (id: string, work: () => Promise<string | void>): Promise<boolean> => {
+    updateSaveStep(id, { status: "running" });
+    try {
+      const detail = await work();
+      updateSaveStep(id, { status: "done", detail: detail || undefined });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`Save step '${id}' failed:`, err);
+      updateSaveStep(id, { status: "error", detail: message });
+      return false;
+    }
+  };
+
+  const runSavePipeline = async () => {
+    const summaryDate = activeDates[activeDates.length - 1];
+    const summary: string[] = [];
+
+    setSaveSteps(SAVE_STEPS.map(step => ({ ...step, status: "pending" as const })));
+    setSaveSummary([]);
+    setSaveFinished(false);
+    setSaveSucceeded(false);
+    setIsSaveDialogOpen(true);
+    savedThroughDateRef.current = null;
+
+    const entrySaved = await runSaveStep("entry", async () => {
+      await saveJournalEntries(summaryDate);
+      return activeDates.length > 1 ? `${activeDates.length} dates saved` : undefined;
+    });
+
+    if (!entrySaved) {
+      // Nothing else can meaningfully run without the entry.
+      SAVE_STEPS.filter(step => step.id !== "entry").forEach(step =>
+        updateSaveStep(step.id, { status: "error", detail: "Skipped because the entry didn't save." })
+      );
+      setSaveFinished(true);
+      return;
+    }
+
+    await runSaveStep("skips", recordDifficultySkips);
+    await runSaveStep("health", async () => {
+      const notes = await saveHealthForDates();
+      summary.push(...notes);
+    });
+    await runSaveStep("learning", async () => {
+      const note = await syncLearningReward(summaryDate);
+      if (note) summary.push(note);
+      return note ?? "No learning entered, so no reward";
+    });
+    await runSaveStep("conditions", async () => {
+      const outcomes = await runConditionsForHabits(activeHabits, activeDates);
+      const fines = outcomes.filter(o => o.outcome === 'fine');
+      const rewards = outcomes.filter(o => o.outcome === 'reward');
+      const emailed = [...new Set(fines.flatMap(f => f.emailedTo))];
+      if (rewards.length > 0) {
+        summary.push(`${rewards.length} habit reward${rewards.length === 1 ? '' : 's'} added (₹${rewards.reduce((t, r) => t + r.amount, 0)}).`);
+      }
+      if (fines.length > 0) {
+        summary.push(`${fines.length} habit fine${fines.length === 1 ? '' : 's'} recorded (₹${fines.reduce((t, f) => t + f.amount, 0)}).`);
+      }
+      if (emailed.length > 0) {
+        summary.push(`Accountability email sent to ${emailed.join(', ')}.`);
+      }
+      return outcomes.length === 0 ? "Nothing triggered" : undefined;
+    });
+
+    savedThroughDateRef.current = summaryDate;
+    setSaveSummary(summary);
+    setSaveSucceeded(true);
+    setSaveFinished(true);
+  };
+
+  /** Pressing Done: back to the top, then on to the next date needing an entry. */
+  const handleSaveDone = async () => {
+    setIsSaveDialogOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    const savedThrough = savedThroughDateRef.current;
+    if (!saveSucceeded || !savedThrough) return;
+
+    const nextEmpty = await findNextEmptyDate(savedThrough);
+    setIsRangeMode(false);
+    setRangeEndDate(nextEmpty);
+    setEntryDate(nextEmpty);
+  };
+
+  /** Writes the daily_entries rows. Throws if any date fails. */
+  const saveJournalEntries = async (summaryDate: string) => {
     // In range mode the written entry belongs to the last date only. Every
     // earlier date gets a pointer to it instead of a duplicated copy.
-    const summaryDate = activeDates[activeDates.length - 1];
     const pointerText = summaryPointerText(summaryDate);
     const timestamp = new Date().toISOString();
 
@@ -635,7 +740,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         mood: moodEmoji,
         new_learning_text: isSummaryDate ? (newLearningText.trim() || null) : pointerText,
         misc_text_tracking: isSummaryDate ? (miscTextTracking.trim() || null) : pointerText,
-        day_type: dayType,
+        day_type: dayTypeFor(date),
         timestamp,
       };
     };
@@ -648,65 +753,34 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           .from('daily_entries')
           .update(fieldsForDate(date))
           .eq('id', existingId);
-        if (error) {
-          console.error("Error updating daily entry:", error);
-          showError(`Failed to save the entry for ${date}.`);
-          return;
-        }
+        if (error) throw new Error(`Couldn't save ${date}: ${error.message}`);
       } else {
         const { data, error } = await supabase
           .from('daily_entries')
           .insert([{ date, ...fieldsForDate(date) }])
           .select();
-        if (error) {
-          console.error("Error saving daily entry:", error);
-          showError(`Failed to save the entry for ${date}.`);
-          return;
-        }
-        if (data && data.length > 0) {
-          newIds[date] = data[0].id;
-        }
+        if (error) throw new Error(`Couldn't save ${date}: ${error.message}`);
+        if (data && data.length > 0) newIds[date] = data[0].id;
       }
     }
-
-    // The entry itself is safe now, so acknowledge it and get back to the top
-    // immediately. Everything below makes many round trips and would otherwise
-    // leave the page sitting at the bottom for seconds after a successful save.
     setEntryIdsByDate(newIds);
-    setShowOverwriteConfirmModal(false);
-    setPendingOverwriteDates([]);
-    showSuccess(activeDates.length > 1 ? `Saved ${activeDates.length} daily entries!` : "Daily entry saved!");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
-    // Habits the day's difficulty excused get an explicit marker, so the date
-    // reads as "not required today" instead of looking like a missing record.
-    await recordDifficultySkips();
-    await saveHealthForDates();
-
-    // Now that the day's tracking is final, evaluate each habit's conditions.
-    // This records any fines/rewards and emails the accountability contacts.
-    const outcomes = await runConditionsForHabits(activeHabits, activeDates);
-    const fines = outcomes.filter(o => o.outcome === 'fine');
-    const rewards = outcomes.filter(o => o.outcome === 'reward');
-    if (rewards.length > 0) {
-      showSuccess(`${rewards.length} reward${rewards.length === 1 ? '' : 's'} added to Fines & Rewards.`);
-    }
-    if (fines.length > 0) {
-      const emailed = fines.flatMap(f => f.emailedTo);
-      showError(
-        `${fines.length} fine${fines.length === 1 ? '' : 's'} recorded.` +
-        (emailed.length > 0 ? ` Accountability email sent to ${[...new Set(emailed)].join(', ')}.` : '')
-      );
-    }
-    // Then move on to the next date that still needs an entry.
-    const nextEmpty = await findNextEmptyDate(summaryDate);
-    if (nextEmpty && nextEmpty !== entryDate) {
-      setIsRangeMode(false);
-      setEntryDate(nextEmpty);
-      setRangeEndDate(nextEmpty);
-      showInfo(`Moving to next empty date: ${nextEmpty}`);
-    }
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  /**
+   * ₹100 for writing down something you learned. Keyed to the date the written
+   * entry lives on, and withdrawn if the field is later cleared.
+   */
+  const syncLearningReward = async (summaryDate: string): Promise<string | null> => {
+    const learned = newLearningText.trim();
+    const amount = await syncAutoEntry({
+      key: `AUTO:LEARNING:${summaryDate}`,
+      date: summaryDate,
+      applies: learned.length > 0,
+      type: 'reward',
+      amount: 100,
+      cause: `Reward: recorded something new learned on ${summaryDate}.`,
+    });
+    return amount > 0 ? `₹${amount} reward for recording something you learned.` : null;
   };
 
   /** Brings the first thing blocking a save into view. */
@@ -727,22 +801,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   };
 
   /**
-   * Marks every habit that this day's difficulty excused with DIFFICULTY_SKIP.
-   * A habit that already carries a real tracked value or an out-of-control miss
-   * for that date is left alone — dropping the difficulty of a day should not
-   * erase work already recorded against it.
+   * Marks every habit that each date's difficulty excused with DIFFICULTY_SKIP.
+   * A habit that already carries a real tracked value, an out-of-control miss
+   * or a week off for that date is left alone. Throws on failure.
    */
-  const recordDifficultySkips = async () => {
-    const requiredIds = new Set(requiredHabits.map(h => h.id));
-    const skippedHabits = activeHabits.filter(h => !requiredIds.has(h.id));
-    if (skippedHabits.length === 0) return;
-
+  const recordDifficultySkips = async (): Promise<string | void> => {
     const records: {
       date: string; habit_id: string; tracked_values: string[]; is_out_of_control_miss: boolean;
     }[] = [];
 
     for (const date of activeDates) {
-      for (const habit of skippedHabits) {
+      if (!dayTypeFor(date)) continue;
+      for (const habit of activeHabits.filter(h => !isRequiredOn(h, date))) {
         const existing = dailyTracking[date]?.[habit.id];
         if (hasRealTrackedValue(existing?.trackedValues) || existing?.isOutOfControlMiss) continue;
         if (existing?.trackedValues?.includes(WEEK_OFF)) continue;
@@ -755,17 +825,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       }
     }
 
-    if (records.length === 0) return;
+    if (records.length === 0) return "None needed";
 
     const { error } = await supabase
       .from('daily_habit_tracking')
       .upsert(records, { onConflict: 'date,habit_id' });
-
-    if (error) {
-      console.error("Error recording difficulty skips:", error);
-      showError("Saved, but failed to mark the habits skipped for this day type.");
-      return;
-    }
+    if (error) throw new Error(error.message);
 
     setDailyTracking(prev => {
       const next = { ...prev };
@@ -777,13 +842,15 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       });
       return next;
     });
+    return `${records.length} marked`;
   };
 
   /**
-   * Writes the health record for every active date, then records a ₹50 reward
-   * for each date that came in at or under the target calorie level.
+   * Writes the health record for every active date, then syncs the calorie
+   * reward and missed-day fine. Returns notes for the summary; throws on failure.
    */
-  const saveHealthForDates = async () => {
+  const saveHealthForDates = async (): Promise<string[]> => {
+    const notes: string[] = [];
     const rows: any[] = [];
     for (const date of activeDates) {
       const record = healthRecords[date];
@@ -808,11 +875,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
     if (rows.length > 0) {
       const { error } = await supabase.from('daily_health').upsert(rows, { onConflict: 'date' });
-      if (error) {
-        console.error("Error saving health records:", error);
-        showError("Saved the entry, but the health details failed to save.");
-        return;
-      }
+      if (error) throw new Error(error.message);
     }
 
     let rewardTotal = 0;
@@ -822,14 +885,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       const record = healthRecords[date];
       if (!record) continue;
 
-      // Reward for staying at or under the calorie target.
       const { average } = calorieTotals(record.meals, record.caloriesBurned);
       const band = calorieBandFor(average, calorieSettings);
       const earnedReward = !record.missedDay
         && record.meals.length > 0
         && !record.isCheatDay
         && band === 'target';
-      rewardTotal += await syncAutoHealthEntry({
+      rewardTotal += await syncAutoEntry({
         key: `AUTO:HEALTH:TARGET:${date}`,
         date,
         applies: earnedReward,
@@ -838,10 +900,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         cause: `Reward: stayed at or under the ${calorieSettings.target} kcal target on ${date} (${Math.round(average)} kcal).`,
       });
 
-      // Fine for a missed day, sized by how the eating went.
       const grade = record.missedDayEating ?? 'good';
       const missedFine = record.missedDay ? MISSED_DAY_FINES[grade] : 0;
-      fineTotal += await syncAutoHealthEntry({
+      fineTotal += await syncAutoEntry({
         key: `AUTO:HEALTH:MISSED:${date}`,
         date,
         applies: record.missedDay && missedFine > 0,
@@ -851,27 +912,25 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       });
     }
 
-    if (rewardTotal > 0) {
-      showSuccess(`₹${rewardTotal} reward added for hitting your calorie target.`);
-    }
-    if (fineTotal > 0) {
-      showError(`₹${fineTotal} fine recorded for missed health tracking.`);
-    }
+    if (rewardTotal > 0) notes.push(`₹${rewardTotal} reward for hitting your calorie target.`);
+    if (fineTotal > 0) notes.push(`₹${fineTotal} fine for missed health tracking.`);
+    return notes;
   };
 
   /**
-   * Creates, updates or withdraws one automatic health fine/reward, keyed so it
-   * can never be double-recorded. Returns the amount if it now applies.
+   * Creates, updates or withdraws one automatic fine/reward, keyed so it can
+   * never be double-recorded. Returns the amount if it was newly recorded.
    */
-  const syncAutoHealthEntry = async (input: {
+  const syncAutoEntry = async (input: {
     key: string; date: string; applies: boolean;
     type: 'fine' | 'reward'; amount: number; cause: string;
   }): Promise<number> => {
-    const { data: existing } = await supabase
+    const { data: existing, error: readError } = await supabase
       .from('fines_status')
       .select('id')
       .eq('tracking_value', input.key)
       .maybeSingle();
+    if (readError) throw new Error(readError.message);
 
     if (!input.applies) {
       if (existing) await supabase.from('fines_status').delete().eq('id', existing.id);
@@ -882,7 +941,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         .from('fines_status')
         .update({ fine_amount: input.amount, cause: input.cause })
         .eq('id', existing.id);
-      return 0; // Already counted on a previous save.
+      return 0; // Already recorded on a previous save.
     }
 
     const { error } = await supabase.from('fines_status').insert([{
@@ -898,11 +957,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       actual_count: 0,
       is_auto: true,
     }]);
-
-    if (error) {
-      console.error("Error recording automatic health entry:", error);
-      return 0;
-    }
+    if (error) throw new Error(error.message);
     return input.amount;
   };
 
@@ -1213,76 +1268,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     setIsWeekOffLoading(false);
   };
 
-  const handleNothingLearned = async () => {
-    if (!isAuthenticated) {
-      showError("You must be logged in to record 'nothing'.");
-      return;
-    }
-    if (!entryDate) {
-      showError("Please select a date first.");
-      return;
-    }
-
-    setIsNothingButtonLoading(true);
-    const currentYear = new Date(entryDate).getFullYear().toString();
-    const yearlyNothingsAllowed = appSettings?.settings_data?.yearly_nothings_allowed || 0;
-    const currentNothingsCount = yearlyNothingsCount?.count || 0;
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      showError("User not authenticated.");
-      setIsNothingButtonLoading(false);
-      return;
-    }
-
-    if (currentNothingsCount >= yearlyNothingsAllowed && yearlyNothingsAllowed > 0) {
-      showError(`You have used all ${yearlyNothingsAllowed} allowed "nothing" entries for new learning this year.`);
-      setIsNothingButtonLoading(false);
-      return;
-    }
-
-    if (newLearningText.toLowerCase() === 'nothing') {
-      setNewLearningText("");
-      if (yearlyNothingsCount) {
-        const newCount = Math.max(0, yearlyNothingsCount.count - 1);
-        const { error: updateError } = await supabase
-          .from('yearly_nothings_counts')
-          .update({ count: newCount })
-          .eq('id', yearlyNothingsCount.id);
-        if (updateError) console.error("Error decrementing nothing count:", updateError);
-        setYearlyNothingsCount(prev => prev ? { ...prev, count: newCount } : null);
-      }
-      showSuccess("Cleared 'nothing' entry.");
-    } else {
-      setNewLearningText("nothing");
-      const newCount = (yearlyNothingsCount?.count || 0) + 1;
-      const { data: upsertData, error: upsertError } = await supabase
-        .from('yearly_nothings_counts')
-        .upsert({ user_id: user.id, year: currentYear, count: newCount }, { onConflict: 'user_id,year' })
-        .select();
-
-      if (upsertError) {
-        console.error("Error updating yearly nothings count:", upsertError);
-        showError("Failed to update 'nothing' count.");
-      } else if (upsertData && upsertData.length > 0) {
-        setYearlyNothingsCount(upsertData[0] as YearlyNothingsCount);
-        showSuccess(`Recorded "nothing" for today. ${yearlyNothingsAllowed - newCount} remaining.`);
-      }
-    }
-    setIsNothingButtonLoading(false);
-  };
-
   const handleSetupHabitClick = () => {
     setActiveTab("setup");
   };
 
   const isCurrentDateMonday = isMonday(new Date(entryDate));
   const remainingWeekOffs = (appSettings?.settings_data?.yearly_week_offs_allowed || 0) - usedWeekOffsCount;
-  const yearlyNothingsAllowed = appSettings?.settings_data?.yearly_nothings_allowed || 0;
-  const currentNothingsCount = yearlyNothingsCount?.count || 0;
-  const remainingNothings = yearlyNothingsAllowed - currentNothingsCount;
 
-  const isNothingButtonDisabled = isNothingButtonLoading || !isAuthenticated || (newLearningText.toLowerCase() !== 'nothing' && remainingNothings <= 0 && yearlyNothingsAllowed > 0);
 
   const currentYearForDisplay = activeDates.length > 0
     ? new Date(activeDates[0]).getFullYear().toString()
@@ -1291,36 +1283,54 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   return (
     <div id="daily" className="tab-content text-center">
       <h2 className="text-2xl font-bold text-gray-800 mb-4">Daily Entries</h2>
+      <SupabaseUsage />
       <p className="text-gray-600 mb-6">
         Pick the kind of day, then the date, to begin your entry.
       </p>
 
-      {/* Day Type Selector */}
+      {/* Day Type Selector — one row per date in a range */}
       <div className="flex flex-col items-center justify-center mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">How was the day?</label>
-        <div id="day-type-selector" className="flex flex-wrap justify-center gap-2">
-          {DAY_TYPES.map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => setDayType(dayType === type ? null : type)}
-              className={cn(
-                "px-5 py-2 rounded-full border-2 font-semibold transition-colors duration-200",
-                dayType === type
-                  ? "bg-blue-600 border-blue-600 text-white shadow"
-                  : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
-              )}
-            >
-              {DAY_TYPE_LABELS[type]}
-            </button>
-          ))}
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          {activeDates.length > 1 ? "How was each day?" : "How was the day?"}
+        </label>
+        <div id="day-type-selector" className="flex flex-col items-center gap-3">
+          {activeDates.map((date) => {
+            const chosen = dayTypeFor(date);
+            const requiredCount = activeHabits.filter(h => isRequiredOn(h, date)).length;
+            return (
+              <div key={date} id={`day-type-${date}`} className="flex flex-col items-center">
+                {activeDates.length > 1 && (
+                  <span className="text-xs font-semibold text-gray-600 mb-1">
+                    {format(new Date(date), 'EEE, d MMM')}
+                  </span>
+                )}
+                <div className="flex flex-wrap justify-center gap-2">
+                  {DAY_TYPES.map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setDayTypeFor(date, chosen === type ? null : type)}
+                      className={cn(
+                        "px-5 py-2 rounded-full border-2 font-semibold transition-colors duration-200",
+                        chosen === type
+                          ? "bg-blue-600 border-blue-600 text-white shadow"
+                          : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                      )}
+                    >
+                      {DAY_TYPE_LABELS[type]}
+                    </button>
+                  ))}
+                </div>
+                {chosen && requiredCount < activeHabits.length && activeDates.length === 1 && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    {requiredCount} habit{requiredCount === 1 ? " is" : "s are"} required on a {DAY_TYPE_LABELS[chosen].toLowerCase()} and {requiredCount === 1 ? "is" : "are"} outlined below.
+                    {" "}The rest can still be recorded as normal — they just won't block saving.
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
-        {dayType && optionalHabitsCount > 0 && (
-          <p className="mt-2 text-xs text-gray-500">
-            {requiredHabits.length} habit{requiredHabits.length === 1 ? " is" : "s are"} required on a {DAY_TYPE_LABELS[dayType].toLowerCase()} and {requiredHabits.length === 1 ? "is" : "are"} outlined below.
-            {" "}The other {optionalHabitsCount} can still be recorded as normal — {optionalHabitsCount === 1 ? "it" : "they"} just won't block saving.
-          </p>
-        )}
       </div>
 
       <div className="flex flex-col items-center justify-center mb-6">
@@ -1338,6 +1348,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             />
           </div>
         )}
+
+        <UpcomingReminders fromDate={activeDates[0] ?? entryDate} />
 
         <div className="flex flex-wrap items-end justify-center gap-4">
           <div className="flex flex-col items-center">
@@ -1427,17 +1439,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           value={newLearningText}
           onChange={(e) => setNewLearningText(e.target.value)}
         ></textarea>
-        <Button
-          variant="outline"
-          className="mt-2 w-full max-w-sm"
-          onClick={handleNothingLearned}
-          disabled={isNothingButtonDisabled}
-        >
-          {newLearningText.toLowerCase() === 'nothing' ? "Clear 'Nothing'" : "Nothing"}
-          {yearlyNothingsAllowed > 0 && (
-            <span className="ml-2 text-xs text-gray-500">({remainingNothings} / {yearlyNothingsAllowed} remaining)</span>
-          )}
-        </Button>
       </div>
       {/* Misc. Text Tracking Field */}
       <div className="flex flex-col items-center justify-center mb-6 w-full">
@@ -1497,8 +1498,11 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
                   weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
                   monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
-                  isRequiredToday={isRequiredToday(habit)}
-                  dayTypeChosen={dayType !== null}
+                  requiredOnDate={Object.fromEntries(
+                    activeDates
+                      .filter(date => dayTypeFor(date) !== null)
+                      .map(date => [date, isRequiredOn(habit, date)])
+                  )}
                 />
                 </div>
               );
@@ -1531,6 +1535,14 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           {activeDates.length > 1 ? `Save Entry for ${activeDates.length} Days` : "Save Entry"}
         </button>
       </div>
+
+      <SaveProgressDialog
+        open={isSaveDialogOpen}
+        steps={saveSteps}
+        finished={saveFinished}
+        summary={saveSummary}
+        onDone={handleSaveDone}
+      />
 
       <OverwriteConfirmationModal
         isOpen={showOverwriteConfirmModal}

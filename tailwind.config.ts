@@ -1,5 +1,4 @@
 import type { Config } from "tailwindcss";
-import defaultTheme from "tailwindcss/defaultTheme";
 
 export default {
   darkMode: ["class"],
@@ -20,7 +19,10 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Poppins", ...defaultTheme.fontFamily.sans],
+        // HabbySans is bundled in src/globals.css. The fallbacks are fonts that
+        // ship with the OS and cannot be the broken one: never a name like
+        // "Poppins" that a machine might have a bad local copy of.
+        sans: ["HabbySans", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",

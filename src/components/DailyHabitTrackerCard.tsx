@@ -33,10 +33,11 @@ interface DailyHabitTrackerCardProps {
   yearlyOutOfControlMissCounts: { [habitId: string]: YearlyOutOfControlMissCount };
   weeklyTrackingCounts: { [trackingValue: string]: number };
   monthlyTrackingCounts: { [trackingValue: string]: number };
-  /** Whether the chosen day type calls for this habit today. */
-  isRequiredToday: boolean;
-  /** False until a day type is picked, when nothing is highlighted yet. */
-  dayTypeChosen: boolean;
+  /**
+   * For each date that has a day type chosen, whether that day calls for this
+   * habit. Dates without a day type are absent, and nothing is outlined there.
+   */
+  requiredOnDate: { [date: string]: boolean };
 }
 
 const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
@@ -49,8 +50,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   yearlyOutOfControlMissCounts,
   weeklyTrackingCounts,
   monthlyTrackingCounts,
-  isRequiredToday,
-  dayTypeChosen,
+  requiredOnDate,
 }) => {
   const [isHoldLoading, setIsHoldLoading] = React.useState(false);
 
@@ -207,11 +207,18 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     return (
       <div
         key={date}
-        className={isMultiDate ? "rounded-lg bg-white/60 p-3 border border-white" : ""}
+        className={isMultiDate
+          ? `rounded-lg bg-white/60 p-3 border ${requiredOnDate[date] === true ? "ring-2 ring-blue-500 border-blue-500" : "border-white"}`
+          : ""}
       >
         {isMultiDate && (
-          <p className="text-sm font-semibold text-gray-700 text-left mb-2">
+          <p className="text-sm font-semibold text-gray-700 text-left mb-2 flex items-center gap-2">
             {format(new Date(date), 'EEE, d MMM')}
+            {requiredOnDate[date] === true && (
+              <span className="bg-blue-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                Required
+              </span>
+            )}
           </p>
         )}
 
@@ -289,7 +296,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   return (
     <div
       className={`p-4 rounded-lg flex flex-col space-y-3 shadow-md transition-all duration-200 ${
-        dayTypeChosen && isRequiredToday
+        !isMultiDate && requiredOnDate[dates[0]] === true
           ? "ring-4 ring-blue-500 ring-offset-2 shadow-lg"
           : ""
       }`}
@@ -316,7 +323,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
             {dates.length} days
           </span>
         )}
-        {dayTypeChosen && isRequiredToday && (
+        {!isMultiDate && requiredOnDate[dates[0]] === true && (
           <span className="bg-blue-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full">
             Required today
           </span>

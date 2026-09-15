@@ -492,8 +492,7 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
                       yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
                       weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
                       monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
-                      isRequiredToday
-                      dayTypeChosen={false}
+                      requiredOnDate={{}}
                     />
                   );
                 })}

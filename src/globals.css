@@ -1,3 +1,46 @@
+/*
+ * The app font is bundled with the build under a name no computer will have
+ * installed. Loading "Poppins" by name let a broken copy installed locally on
+ * a machine take over some weights and render text as symbol glyphs. With a
+ * unique family name and no local() lookup, only these files can ever be used.
+ * Poppins, SIL Open Font License 1.1 — see assets/fonts/OFL-LICENSE.txt.
+ */
+@font-face {
+  font-family: "HabbySans";
+  src: url("./assets/fonts/habby-sans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HabbySans";
+  src: url("./assets/fonts/habby-sans-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HabbySans";
+  src: url("./assets/fonts/habby-sans-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HabbySans";
+  src: url("./assets/fonts/habby-sans-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HabbySans";
+  src: url("./assets/fonts/habby-sans-800.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -95,9 +138,18 @@
     @apply border-border;
   }
 
+  /*
+   * Always the bundled HabbySans stack from tailwind.config.ts. Naming a font
+   * here that the app doesn't ship (this used to say 'Inter') hands the choice
+   * to whatever copy happens to be installed on the viewer's machine.
+   */
+  html,
+  body {
+    @apply font-sans;
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', sans-serif;
     background-color: #f3f4f6;
     min-height: 100vh;
   }
