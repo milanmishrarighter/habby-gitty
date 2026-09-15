@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ChevronsUpDown } from "lucide-react";
-import { DailyHealthRecord, mapSupabaseHealthRecord, MISSED_DAY_EATING_LABELS } from "@/types/health";
+import { DailyHealthRecord, mapSupabaseHealthRecord, MISSED_DAY_EATING_LABELS, CHEAT_DAY_OUTCOME_LABELS } from "@/types/health";
 import { calorieTotals } from "@/utils/healthUtils";
 
 interface HealthForDateProps {
@@ -58,6 +58,8 @@ const HealthForDate: React.FC<HealthForDateProps> = ({ date }) => {
     ? ""
     : record.missedDay
       ? " — missed"
+      : record.isCheatDay
+        ? " — cheat day"
       : record.meals.length > 0 && totals
         ? ` — ${Math.round(totals.min)}–${Math.round(totals.max)} kcal`
         : "";
@@ -88,9 +90,11 @@ const HealthForDate: React.FC<HealthForDateProps> = ({ date }) => {
               </p>
             ) : (
               <>
-                {record.isCheatDay && <p className="font-medium text-amber-700">Cheat day</p>}
-
-                {record.meals.length === 0 ? (
+                {record.isCheatDay ? (
+                  <p className="font-medium text-amber-700">
+                    Cheat day: {CHEAT_DAY_OUTCOME_LABELS[record.cheatDayOutcome ?? "under"]}
+                  </p>
+                ) : record.meals.length === 0 ? (
                   <p className="text-gray-500 italic">No meals recorded.</p>
                 ) : (
                   <ul className="list-none space-y-1">

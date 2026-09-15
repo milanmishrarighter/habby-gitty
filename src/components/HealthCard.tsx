@@ -9,6 +9,8 @@ import { showSuccess, showError } from "@/utils/toast";
 import {
   DailyHealthRecord, SavedMeal, MealEntry, CalorieSettings, mapSupabaseSavedMeal,
   SHITTY_DAY_GRADES, ShittyDayGrade, MissedDayEating, MISSED_DAY_EATING_LABELS, MISSED_DAY_FINES,
+  CheatDayOutcome, CHEAT_DAY_OUTCOME_LABELS, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE,
+  CHEAT_DAY_OVER_FREE_PER_MONTH,
 } from "@/types/health";
 import {
   calorieTotals, healthWarningsFor, AllowanceUsage,
@@ -162,7 +164,7 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
   // has to be scoped to the date this card belongs to.
   const uid = record.date;
   const totals = calorieTotals(record.meals, record.caloriesBurned);
-  const warnings = record.missedDay ? [] : healthWarningsFor(record, settings, weekUsage);
+  const warnings = record.missedDay || record.isCheatDay ? [] : healthWarningsFor(record, settings, weekUsage);
 
   return (
     <div className="p-4 rounded-lg shadow-md flex flex-col space-y-4 bg-emerald-50 border border-emerald-200 text-left">
@@ -223,17 +225,49 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
         <span className="flex-grow text-sm font-medium text-gray-800">
           Was today a cheat day?
           <span className="block text-xs text-gray-600 font-normal">
-            {settings.cheatDay > 0
-              ? `Calories shouldn't cross ${settings.cheatDay} kcal on a cheat day.`
-              : "Set a cheat day limit in Settings."}
+            No meals to log — just say how it went.
           </span>
         </span>
         <Switch
           id={`cheat-day-${uid}`}
           checked={record.isCheatDay}
-          onCheckedChange={(checked) => onChange({ ...record, isCheatDay: checked })}
+          onCheckedChange={(checked) => onChange({
+            ...record,
+            isCheatDay: checked,
+            cheatDayOutcome: checked ? (record.cheatDayOutcome ?? "under") : null,
+          })}
         />
       </label>
+
+      {record.isCheatDay && (
+        <div className="p-3 rounded-lg bg-white/70">
+          <label htmlFor={`cheat-outcome-${uid}`} className="block text-sm font-medium text-gray-700">
+            How did the cheat day go?
+          </label>
+          <select
+            id={`cheat-outcome-${uid}`}
+            className="mt-1 p-2 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
+            value={record.cheatDayOutcome ?? "under"}
+            onChange={(e) => onChange({ ...record, cheatDayOutcome: e.target.value as CheatDayOutcome })}
+          >
+            {(Object.keys(CHEAT_DAY_OUTCOME_LABELS) as CheatDayOutcome[]).map((outcome) => (
+              <option key={outcome} value={outcome}>{CHEAT_DAY_OUTCOME_LABELS[outcome]}</option>
+            ))}
+          </select>
+          <p className={`mt-2 p-2 rounded-md text-sm border ${
+            (record.cheatDayOutcome ?? "under") === "under"
+              ? "bg-green-100 text-green-800 border-green-300"
+              : "bg-amber-100 text-amber-900 border-amber-300"
+          }`}>
+            {(record.cheatDayOutcome ?? "under") === "under"
+              ? `Earns a ₹${CHEAT_DAY_UNDER_REWARD} reward on save.`
+              : `Free ${CHEAT_DAY_OVER_FREE_PER_MONTH} times a month. Every time after that in the same month is a ₹${CHEAT_DAY_OVER_FINE} fine.`}
+          </p>
+        </div>
+      )}
+
+      {!record.isCheatDay && (
+      <>
 
       {/* Add a meal */}
       <div>
@@ -440,6 +474,8 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
         </div>
       ))}
 
+      </>
+      )}
       </>
       )}
 

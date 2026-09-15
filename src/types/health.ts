@@ -17,6 +17,23 @@ export const SHITTY_DAY_GRADES: ShittyDayGrade[] = ["A", "B", "C", "D"];
 
 export type MissedDayEating = "good" | "average" | "bad";
 
+/** How a cheat day went, in place of logging its meals. */
+export type CheatDayOutcome = "under" | "over";
+
+export const CHEAT_DAY_LIMIT_KCAL = 3500;
+
+export const CHEAT_DAY_OUTCOME_LABELS: Record<CheatDayOutcome, string> = {
+  under: `I ate below ${CHEAT_DAY_LIMIT_KCAL} cals`,
+  over: `I definitely ate more than ${CHEAT_DAY_LIMIT_KCAL} cals`,
+};
+
+/** Every cheat day kept under the limit earns this. */
+export const CHEAT_DAY_UNDER_REWARD = 100;
+/** Going over is allowed this many times a calendar month without a fine. */
+export const CHEAT_DAY_OVER_FREE_PER_MONTH = 2;
+/** Charged for each over-the-limit cheat day beyond the free ones that month. */
+export const CHEAT_DAY_OVER_FINE = 500;
+
 /** What a missed day costs, by how the eating went. */
 export const MISSED_DAY_FINES: Record<MissedDayEating, number> = {
   good: 0,
@@ -41,6 +58,7 @@ export interface DailyHealthRecord {
   shittyDay: ShittyDayGrade | null;
   missedDay: boolean;
   missedDayEating: MissedDayEating | null;
+  cheatDayOutcome: CheatDayOutcome | null;
 }
 
 export interface CalorieSettings {
@@ -67,6 +85,7 @@ export const emptyHealthRecord = (date: string): DailyHealthRecord => ({
   shittyDay: null,
   missedDay: false,
   missedDayEating: null,
+  cheatDayOutcome: null,
 });
 
 export const mapSupabaseHealthRecord = (row: any): DailyHealthRecord => ({
@@ -80,6 +99,7 @@ export const mapSupabaseHealthRecord = (row: any): DailyHealthRecord => ({
   shittyDay: (row.shitty_day as ShittyDayGrade) || null,
   missedDay: row.missed_day ?? false,
   missedDayEating: (row.missed_day_eating as MissedDayEating) || null,
+  cheatDayOutcome: (row.cheat_day_outcome as CheatDayOutcome) || null,
 });
 
 export const mapSupabaseSavedMeal = (row: any): SavedMeal => ({

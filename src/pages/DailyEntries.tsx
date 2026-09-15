@@ -20,7 +20,10 @@ import HealthCard from "@/components/HealthCard";
 import SaveProgressDialog, { SaveStep } from "@/components/SaveProgressDialog";
 import UpcomingReminders from "@/components/UpcomingReminders";
 import SupabaseUsage from "@/components/SupabaseUsage";
-import { DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord, MISSED_DAY_FINES } from "@/types/health";
+import {
+  DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord,
+  MISSED_DAY_FINES, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE, CHEAT_DAY_OVER_FREE_PER_MONTH,
+} from "@/types/health";
 import { readCalorieSettings, calorieTotals, calorieBandFor, summariseWeek, AllowanceUsage } from "@/utils/healthUtils";
 import {
   DayType,
@@ -856,14 +859,16 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       const record = healthRecords[date];
       if (!record) continue;
       const isBlank = record.meals.length === 0 && !record.weightChecked
-        && !record.missedDay && !record.shittyDay;
+        && !record.missedDay && !record.shittyDay && !record.isCheatDay;
       if (isBlank) continue;
 
       rows.push({
         date,
-        meals: record.missedDay ? [] : record.meals,
-        calories_burned: record.missedDay ? 0 : record.caloriesBurned,
+        // A missed day or a cheat day stands in for the meal log, so neither keeps meals.
+        meals: record.missedDay || record.isCheatDay ? [] : record.meals,
+        calories_burned: record.missedDay || record.isCheatDay ? 0 : record.caloriesBurned,
         is_cheat_day: record.missedDay ? false : record.isCheatDay,
+        cheat_day_outcome: !record.missedDay && record.isCheatDay ? (record.cheatDayOutcome ?? 'under') : null,
         weight_checked: record.weightChecked,
         weight: record.weightChecked ? record.weight : null,
         shitty_day: record.shittyDay,
@@ -914,6 +919,78 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
     if (rewardTotal > 0) notes.push(`₹${rewardTotal} reward for hitting your calorie target.`);
     if (fineTotal > 0) notes.push(`₹${fineTotal} fine for missed health tracking.`);
+    notes.push(...await syncCheatDayOutcomes());
+    return notes;
+  };
+
+  /**
+   * Cheat day rewards and fines. Kept under the limit: a reward, every time.
+   * Went over: free the first two times in a calendar month, then a fine for
+   * each one after. The fine depends on the whole month, so the month is
+   * re-ranked from the database and every date in it is re-synced — editing
+   * an earlier date correctly shifts which later days are fined.
+   */
+  const syncCheatDayOutcomes = async (): Promise<string[]> => {
+    let rewardTotal = 0;
+    let fineTotal = 0;
+
+    for (const date of activeDates) {
+      const record = healthRecords[date];
+      const isUnder = !!record && !record.missedDay && record.isCheatDay
+        && (record.cheatDayOutcome ?? 'under') === 'under';
+      rewardTotal += await syncAutoEntry({
+        key: `AUTO:HEALTH:CHEAT_UNDER:${date}`,
+        date,
+        applies: isUnder,
+        type: 'reward',
+        amount: CHEAT_DAY_UNDER_REWARD,
+        cause: `Reward: cheat day on ${date} kept under 3500 kcal.`,
+      });
+    }
+
+    const months = [...new Set(activeDates.map(date => date.slice(0, 7)))];
+    for (const month of months) {
+      const monthStart = `${month}-01`;
+      const monthEnd = format(endOfMonth(new Date(monthStart)), 'yyyy-MM-dd');
+
+      const { data, error } = await supabase
+        .from('daily_health')
+        .select('date, is_cheat_day, missed_day, cheat_day_outcome')
+        .gte('date', monthStart)
+        .lte('date', monthEnd)
+        .order('date', { ascending: true });
+      if (error) throw new Error(error.message);
+
+      const overDates = (data || [])
+        .filter((row: any) => row.is_cheat_day && !row.missed_day && row.cheat_day_outcome === 'over')
+        .map((row: any) => format(new Date(row.date), 'yyyy-MM-dd'));
+      const overSet = new Set(overDates);
+
+      // Every date in the month that could hold a fine: the over days, plus
+      // anything being saved now (which may have just stopped being one).
+      const candidates = [...new Set([
+        ...overDates,
+        ...activeDates.filter(date => date.startsWith(month)),
+      ])];
+
+      for (const date of candidates) {
+        const rank = overDates.indexOf(date) + 1; // 1-based; 0 when not an over day
+        const fined = overSet.has(date) && rank > CHEAT_DAY_OVER_FREE_PER_MONTH;
+        fineTotal += await syncAutoEntry({
+          key: `AUTO:HEALTH:CHEAT_OVER:${date}`,
+          date,
+          applies: fined,
+          type: 'fine',
+          amount: CHEAT_DAY_OVER_FINE,
+          cause: `Fine: cheat day on ${date} went over 3500 kcal — number ${rank} this month, `
+            + `past the ${CHEAT_DAY_OVER_FREE_PER_MONTH} allowed.`,
+        });
+      }
+    }
+
+    const notes: string[] = [];
+    if (rewardTotal > 0) notes.push(`₹${rewardTotal} reward for keeping a cheat day under 3500 kcal.`);
+    if (fineTotal > 0) notes.push(`₹${fineTotal} fine for going over 3500 kcal on a cheat day more than twice this month.`);
     return notes;
   };
 
