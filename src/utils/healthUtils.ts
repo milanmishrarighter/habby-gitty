@@ -1,4 +1,4 @@
-import { DailyHealthRecord, CalorieSettings, MealEntry, CHEAT_DAY_RECORDED_KCAL } from "@/types/health";
+import { DailyHealthRecord, CalorieSettings, MealEntry, CHEAT_DAY_RECORDED_KCAL, MISSED_DAY_RECORDED_KCAL } from "@/types/health";
 
 export interface CalorieTotals {
   min: number;
@@ -17,20 +17,24 @@ export const calorieTotals = (
 };
 
 /**
- * The calories a whole day counts as. A cheat day is a fixed figure by outcome,
- * even if it was saved before its stand-in meal row existed.
+ * The calories a whole day counts as. Missed days and cheat days are fixed
+ * figures by grade or outcome, even if saved before their stand-in meal rows.
  */
 export const recordCalorieTotals = (record: DailyHealthRecord): CalorieTotals => {
-  if (record.isCheatDay && !record.missedDay) {
+  if (record.missedDay) {
+    const kcal = MISSED_DAY_RECORDED_KCAL[record.missedDayEating ?? "good"];
+    return { min: kcal, max: kcal, average: kcal };
+  }
+  if (record.isCheatDay) {
     const kcal = CHEAT_DAY_RECORDED_KCAL[record.cheatDayOutcome ?? "under"];
     return { min: kcal, max: kcal, average: kcal };
   }
   return calorieTotals(record.meals, record.caloriesBurned);
 };
 
-/** Whether the day has any calorie figure to chart. Missed days have none. */
+/** Whether the day has any calorie figure to chart. */
 export const hasCalorieData = (record: DailyHealthRecord): boolean =>
-  !record.missedDay && (record.isCheatDay || record.meals.length > 0);
+  record.missedDay || record.isCheatDay || record.meals.length > 0;
 
 export type CalorieBand = "target" | "maintaining" | "cheat" | "over" | "unset";
 
@@ -73,7 +77,9 @@ export const summariseWeek = (
   let maintainingDays = 0;
 
   records.forEach(record => {
-    if (record.isCheatDay) return; // Cheat days sit outside the allowance.
+    // Cheat days and missed days are estimates, not logged intake, so they sit
+    // outside the weekly target/maintaining allowance.
+    if (record.isCheatDay || record.missedDay) return;
     const { average } = calorieTotals(record.meals, record.caloriesBurned);
     if (record.meals.length === 0) return;
     const band = calorieBandFor(average, settings);

@@ -10,7 +10,7 @@ import {
   DailyHealthRecord, SavedMeal, MealEntry, CalorieSettings, mapSupabaseSavedMeal,
   SHITTY_DAY_GRADES, ShittyDayGrade, MissedDayEating, MISSED_DAY_EATING_LABELS, MISSED_DAY_FINES,
   CheatDayOutcome, CHEAT_DAY_OUTCOME_LABELS, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE,
-  CHEAT_DAY_OVER_FREE_PER_MONTH, isCheatDayMeal,
+  CHEAT_DAY_OVER_FREE_PER_MONTH, isCheatDayMeal, isMissedDayMeal,
 } from "@/types/health";
 import {
   calorieTotals, healthWarningsFor, AllowanceUsage,
@@ -189,6 +189,8 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
               ...record,
               missedDay: e.target.checked,
               missedDayEating: e.target.checked ? (record.missedDayEating ?? "good") : null,
+              // Unticking drops the stand-in missed day meal.
+              meals: e.target.checked ? record.meals : record.meals.filter(meal => !isMissedDayMeal(meal)),
             })}
           />
           Missed this day

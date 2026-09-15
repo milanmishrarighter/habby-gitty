@@ -63,6 +63,26 @@ export const MISSED_DAY_FINES: Record<MissedDayEating, number> = {
   bad: 500,
 };
 
+/** The calories a missed day is recorded as, by how the eating went. */
+export const MISSED_DAY_RECORDED_KCAL: Record<MissedDayEating, number> = {
+  good: 2000,
+  average: 2500,
+  bad: 3500,
+};
+
+/** Name of the single meal row a missed day is stored as. */
+const MISSED_DAY_MEAL_NAME = "Missed day";
+
+export const missedDayMeal = (eating: MissedDayEating): MealEntry => ({
+  foodName: `${MISSED_DAY_MEAL_NAME} — ${eating} eating`,
+  minCalorie: MISSED_DAY_RECORDED_KCAL[eating],
+  maxCalorie: MISSED_DAY_RECORDED_KCAL[eating],
+});
+
+/** Whether a meal row is the stand-in written for a missed day, not real food. */
+export const isMissedDayMeal = (meal: MealEntry): boolean =>
+  meal.foodName.startsWith(`${MISSED_DAY_MEAL_NAME} — `);
+
 export const MISSED_DAY_EATING_LABELS: Record<MissedDayEating, string> = {
   good: "Good — no fine",
   average: "Average — ₹100 fine",

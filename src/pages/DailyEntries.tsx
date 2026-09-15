@@ -17,12 +17,12 @@ import { Switch } from "@/components/ui/switch";
 import { AppSettings } from "@/types/appSettings";
 import { runConditionsForHabits } from "@/utils/conditionRunner";
 import HealthCard from "@/components/HealthCard";
-import SaveProgressDialog, { SaveStep } from "@/components/SaveProgressDialog";
+import SaveProgressDialog, { SaveStep, RegisteredAmount } from "@/components/SaveProgressDialog";
 import UpcomingReminders from "@/components/UpcomingReminders";
 import SupabaseUsage from "@/components/SupabaseUsage";
 import {
   DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord,
-  MISSED_DAY_FINES, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE, CHEAT_DAY_OVER_FREE_PER_MONTH, cheatDayMeal,
+  MISSED_DAY_FINES, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE, CHEAT_DAY_OVER_FREE_PER_MONTH, cheatDayMeal, missedDayMeal,
 } from "@/types/health";
 import { readCalorieSettings, calorieTotals, calorieBandFor, summariseWeek, AllowanceUsage } from "@/utils/healthUtils";
 import {
@@ -101,7 +101,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [saveSteps, setSaveSteps] = React.useState<SaveStep[]>([]);
   const [saveFinished, setSaveFinished] = React.useState(false);
   const [saveSucceeded, setSaveSucceeded] = React.useState(false);
-  const [saveSummary, setSaveSummary] = React.useState<string[]>([]);
+  const [saveSummary, setSaveSummary] = React.useState<RegisteredAmount[]>([]);
   // The last date written by a successful save; where "next empty date" starts.
   const savedThroughDateRef = React.useRef<string | null>(null);
 
@@ -679,7 +679,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
   const runSavePipeline = async () => {
     const summaryDate = activeDates[activeDates.length - 1];
-    const summary: string[] = [];
 
     setSaveSteps(SAVE_STEPS.map(step => ({ ...step, status: "pending" as const })));
     setSaveSummary([]);
@@ -704,35 +703,49 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
     await runSaveStep("skips", recordDifficultySkips);
     await runSaveStep("health", async () => {
-      const notes = await saveHealthForDates();
-      summary.push(...notes);
+      await saveHealthForDates();
     });
     await runSaveStep("learning", async () => {
       const note = await syncLearningReward(summaryDate);
-      if (note) summary.push(note);
       return note ?? "No learning entered, so no reward";
     });
     await runSaveStep("conditions", async () => {
       const outcomes = await runConditionsForHabits(activeHabits, activeDates);
-      const fines = outcomes.filter(o => o.outcome === 'fine');
-      const rewards = outcomes.filter(o => o.outcome === 'reward');
-      const emailed = [...new Set(fines.flatMap(f => f.emailedTo))];
-      if (rewards.length > 0) {
-        summary.push(`${rewards.length} habit reward${rewards.length === 1 ? '' : 's'} added (₹${rewards.reduce((t, r) => t + r.amount, 0)}).`);
-      }
-      if (fines.length > 0) {
-        summary.push(`${fines.length} habit fine${fines.length === 1 ? '' : 's'} recorded (₹${fines.reduce((t, f) => t + f.amount, 0)}).`);
-      }
-      if (emailed.length > 0) {
-        summary.push(`Accountability email sent to ${emailed.join(', ')}.`);
-      }
-      return outcomes.length === 0 ? "Nothing triggered" : undefined;
+      const emailed = [...new Set(outcomes.flatMap(o => o.emailedTo))];
+      return emailed.length > 0 ? `Email sent to ${emailed.join(', ')}` : undefined;
     });
 
     savedThroughDateRef.current = summaryDate;
-    setSaveSummary(summary);
+    setSaveSummary(await registeredAmountsFor(activeDates));
     setSaveSucceeded(true);
     setSaveFinished(true);
+  };
+
+  /**
+   * Every fine and reward that belongs to these dates, read back from the
+   * ledger once all saving is finished. Filtering on entry_date is what keeps
+   * this to the entry being saved: a weekly condition books its result on the
+   * week's last day, so it appears when saving that Sunday and not otherwise,
+   * and the just-closed period judged alongside an early-month save carries its
+   * own earlier date and is left out.
+   */
+  const registeredAmountsFor = async (dates: string[]): Promise<RegisteredAmount[]> => {
+    const { data, error } = await supabase
+      .from('fines_status')
+      .select('type, fine_amount, cause, entry_date')
+      .in('entry_date', dates)
+      .order('entry_date', { ascending: true });
+
+    if (error) {
+      console.error("Error reading fines and rewards for the saved dates:", error);
+      return [];
+    }
+    return (data || []).map((row: any) => ({
+      type: row.type === 'reward' ? 'reward' : 'fine',
+      amount: Number(row.fine_amount) || 0,
+      description: row.cause,
+      date: format(new Date(row.entry_date), 'yyyy-MM-dd'),
+    }));
   };
 
   /** Pressing Done: back to the top, then on to the next date needing an entry. */
@@ -884,10 +897,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
       rows.push({
         date,
-        // A missed day has no meals. A cheat day is stored as one stand-in meal
-        // at a fixed 3500 or 4250 kcal, so its calories count everywhere else.
+        // Missed days and cheat days are stored as one stand-in meal at a fixed
+        // figure (missed: 2000/2500/3500, cheat: 3500/4250) so they count in totals.
         meals: record.missedDay
-          ? []
+          ? [missedDayMeal(record.missedDayEating ?? 'good')]
           : record.isCheatDay
             ? [cheatDayMeal(record.cheatDayOutcome ?? 'under')]
             : record.meals,
@@ -1643,6 +1656,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         steps={saveSteps}
         finished={saveFinished}
         summary={saveSummary}
+        dates={activeDates}
         onDone={handleSaveDone}
       />
 

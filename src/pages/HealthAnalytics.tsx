@@ -208,7 +208,7 @@ const HealthAnalytics: React.FC = () => {
                     </ResponsiveContainer>
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
-                    Cheat days are plotted at 3500 kcal, or 4250 kcal when you went over. Missed days aren't plotted.
+                    Cheat days are plotted at 3500 kcal (4250 when you went over). Missed days are plotted at 2000, 2500 or 3500 kcal for good, average or bad eating.
                   </p>
                 </>
               )}

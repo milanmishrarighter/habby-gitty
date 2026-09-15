@@ -57,7 +57,7 @@ const HealthForDate: React.FC<HealthForDateProps> = ({ date }) => {
   const headline = !record
     ? ""
     : record.missedDay
-      ? " — missed"
+      ? ` — missed, ${totals?.max ?? ""} kcal`
       : record.isCheatDay
         ? ` — cheat day, ${totals?.max ?? ""} kcal`
       : record.meals.length > 0 && totals

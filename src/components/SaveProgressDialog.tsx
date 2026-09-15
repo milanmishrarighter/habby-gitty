@@ -5,8 +5,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Check, Loader2, X, Circle } from "lucide-react";
+import { format, parseISO } from "date-fns";
 
 export type SaveStepStatus = "pending" | "running" | "done" | "error";
+
+/** A fine or reward recorded against one of the dates being saved. */
+export interface RegisteredAmount {
+  type: "fine" | "reward";
+  amount: number;
+  description: string;
+  date: string;
+}
 
 export interface SaveStep {
   id: string;
@@ -21,9 +30,11 @@ interface SaveProgressDialogProps {
   steps: SaveStep[];
   /** Everything has stopped running, successfully or not. */
   finished: boolean;
-  /** Notes about what the save did: rewards, fines, emails. */
-  summary: string[];
+  /** The fines and rewards registered for the dates in this entry. */
+  summary: RegisteredAmount[];
   onDone: () => void;
+  /** The dates this entry covers, for the summary heading. */
+  dates: string[];
 }
 
 const StepIcon: React.FC<{ status: SaveStepStatus }> = ({ status }) => {
@@ -39,13 +50,20 @@ const StepIcon: React.FC<{ status: SaveStepStatus }> = ({ status }) => {
   }
 };
 
-const SaveProgressDialog: React.FC<SaveProgressDialogProps> = ({ open, steps, finished, summary, onDone }) => {
+const SaveProgressDialog: React.FC<SaveProgressDialogProps> = ({ open, steps, finished, summary, onDone, dates }) => {
   const completed = steps.filter(step => step.status === "done" || step.status === "error").length;
   const percent = steps.length === 0 ? 0 : Math.round((completed / steps.length) * 100);
   const failedSteps = steps.filter(step => step.status === "error");
   // The entry itself failing means nothing was saved, which is a different
   // outcome from a side step failing after the entry was already safe.
   const entryFailed = steps.find(step => step.id === "entry")?.status === "error";
+
+  const distinctDates = [...new Set(summary.map(item => item.date))];
+  const showDates = distinctDates.length > 1;
+  const net = summary.reduce((total, item) => total + (item.type === "reward" ? item.amount : -item.amount), 0);
+  const dateLabel = dates.length > 1
+    ? `${format(parseISO(dates[0]), "d MMM")} – ${format(parseISO(dates[dates.length - 1]), "d MMM")}`
+    : dates.length === 1 ? format(parseISO(dates[0]), "EEE, d MMM") : "this entry";
 
   return (
     <Dialog
@@ -55,7 +73,7 @@ const SaveProgressDialog: React.FC<SaveProgressDialogProps> = ({ open, steps, fi
       onOpenChange={() => {}}
     >
       <DialogContent
-        className="sm:max-w-md [&>button]:hidden"
+        className="sm:max-w-md max-h-[90vh] overflow-y-auto [&>button]:hidden"
         onInteractOutside={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => event.preventDefault()}
       >
@@ -95,11 +113,36 @@ const SaveProgressDialog: React.FC<SaveProgressDialogProps> = ({ open, steps, fi
           ))}
         </ul>
 
-        {finished && summary.length > 0 && (
-          <div className="rounded-md bg-gray-50 border border-gray-200 p-3 space-y-1">
-            {summary.map((line, index) => (
-              <p key={index} className="text-sm text-gray-700">{line}</p>
-            ))}
+        {finished && !entryFailed && (
+          <div className="rounded-md bg-gray-50 border border-gray-200 p-3">
+            <p className="text-sm font-semibold text-gray-800 mb-2">
+              Fines and rewards for {dateLabel}
+            </p>
+            {summary.length === 0 ? (
+              <p className="text-sm text-gray-500">None registered.</p>
+            ) : (
+              <>
+                <ul className="space-y-1.5">
+                  {summary.map((item, index) => (
+                    <li key={index} className="flex justify-between gap-3 text-sm">
+                      <span className="text-gray-700">
+                        {showDates && <span className="text-gray-500">{format(parseISO(item.date), "d MMM")} · </span>}
+                        {item.description}
+                      </span>
+                      <span className={`shrink-0 font-semibold tabular-nums ${item.type === "reward" ? "text-green-700" : "text-red-700"}`}>
+                        {item.type === "reward" ? "+" : "−"}₹{item.amount}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex justify-between mt-2 pt-2 border-t border-gray-200 text-sm font-semibold">
+                  <span>Net</span>
+                  <span className={`tabular-nums ${net >= 0 ? "text-green-700" : "text-red-700"}`}>
+                    {net >= 0 ? "+" : "−"}₹{Math.abs(net)}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         )}
 
