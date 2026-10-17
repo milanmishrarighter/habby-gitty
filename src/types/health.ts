@@ -56,6 +56,15 @@ export const CHEAT_DAY_OVER_FREE_PER_MONTH = 2;
 /** Charged for each over-the-limit cheat day beyond the free ones that month. */
 export const CHEAT_DAY_OVER_FINE = 500;
 
+/** A normal (non-cheat, non-missed) day over this many calories is fined. */
+export const DAILY_CALORIE_LIMIT_KCAL = 2500;
+/** The fine for going over the daily limit; it also emails the accountability contacts. */
+export const DAILY_CALORIE_LIMIT_FINE = 350;
+
+/** Whether a day's record is fined for going over the daily calorie limit. */
+export const isOverDailyCalorieLimit = (record: DailyHealthRecord, averageKcal: number): boolean =>
+  !record.missedDay && !record.isCheatDay && record.meals.length > 0 && averageKcal > DAILY_CALORIE_LIMIT_KCAL;
+
 /** What a missed day costs, by how the eating went. */
 export const MISSED_DAY_FINES: Record<MissedDayEating, number> = {
   good: 0,

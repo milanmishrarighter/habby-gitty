@@ -10,9 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AppSettings } from "@/types/appSettings";
 import { CalorieSettings, EMPTY_CALORIE_SETTINGS } from "@/types/health";
 import { readCalorieSettings } from "@/utils/healthUtils";
+import {
+  HOLIDAYS_ALLOWED_KEY, readHolidaysAllowed, readHolidayRanges, holidayDaysUsedInYear,
+} from "@/utils/holidays";
 
 const Settings: React.FC = () => {
-  const [yearlyWeekOffsAllowed, setYearlyWeekOffsAllowed] = React.useState<number | "">(0);
+  const [yearlyHolidaysAllowed, setYearlyHolidaysAllowed] = React.useState<number | "">(0);
   const [settingsId, setSettingsId] = React.useState<string | null>(null);
   const [allSettingsData, setAllSettingsData] = React.useState<Record<string, any>>({}); // To hold all settings from JSONB
   const [isLoading, setIsLoading] = React.useState(true);
@@ -36,7 +39,7 @@ const Settings: React.FC = () => {
       } else if (data) {
         setSettingsId(data.id);
         setAllSettingsData(data.settings_data || {});
-        setYearlyWeekOffsAllowed(data.settings_data?.yearly_week_offs_allowed || 0);
+        setYearlyHolidaysAllowed(readHolidaysAllowed(data.settings_data));
         setAppPassword(data.settings_data?.app_password ? String(data.settings_data.app_password) : "password"); // Load app password
         setAccountabilityEmails(
           Array.isArray(data.settings_data?.accountability_emails) ? data.settings_data.accountability_emails : []
@@ -75,16 +78,21 @@ const Settings: React.FC = () => {
   };
 
   const handleSaveSettings = async () => {
-    if (typeof yearlyWeekOffsAllowed !== 'number' || yearlyWeekOffsAllowed < 0) {
-      showError("Please enter a valid positive number for Yearly Week Offs Allowed.");
+    if (typeof yearlyHolidaysAllowed !== 'number' || yearlyHolidaysAllowed < 0 || !Number.isInteger(yearlyHolidaysAllowed)) {
+      showError("Please enter a whole number of holiday days (0 or more).");
       return;
     }
 
     setIsLoading(true);
 
+    // Holidays are booked from Daily Entries, so read the row fresh rather than
+    // risk writing back a stale copy of them.
+    const { data: latest } = await supabase.from('app_settings').select('settings_data').limit(1).maybeSingle();
+
     const updatedSettingsData = {
       ...allSettingsData, // Keep existing settings
-      yearly_week_offs_allowed: yearlyWeekOffsAllowed,
+      ...(latest?.settings_data || {}),
+      [HOLIDAYS_ALLOWED_KEY]: yearlyHolidaysAllowed,
       app_password: appPassword, // Save app password
       accountability_emails: accountabilityEmails,
       target_calories: calorieSettings.target,
@@ -123,6 +131,9 @@ const Settings: React.FC = () => {
     setIsLoading(false);
   };
 
+  const currentYear = new Date().getFullYear();
+  const usedHolidaysThisYear = holidayDaysUsedInYear(readHolidayRanges(allSettingsData), currentYear);
+
   return (
     <div id="settings" className="tab-content text-center">
       <h2 className="text-2xl font-bold text-gray-800 mb-4">App Settings</h2>
@@ -130,25 +141,28 @@ const Settings: React.FC = () => {
 
       <Card className="w-full max-w-md mx-auto">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Yearly Week Offs</CardTitle>
+          <CardTitle className="text-xl font-semibold">Holidays</CardTitle>
         </CardHeader>
         <CardContent className="text-left">
           <div className="mb-4">
-            <Label htmlFor="yearly-week-offs" className="block text-sm font-medium text-gray-700 mb-1">
-              Yearly Week Offs Allowed
+            <Label htmlFor="yearly-holidays" className="block text-sm font-medium text-gray-700 mb-1">
+              Holiday days allowed per year
             </Label>
             <Input
               type="number"
-              id="yearly-week-offs"
-              placeholder="e.g., 5"
-              value={yearlyWeekOffsAllowed}
-              onChange={(e) => setYearlyWeekOffsAllowed(e.target.value === "" ? "" : Number(e.target.value))}
+              id="yearly-holidays"
+              placeholder="e.g., 20"
+              value={yearlyHolidaysAllowed}
+              onChange={(e) => setYearlyHolidaysAllowed(e.target.value === "" ? "" : Number(e.target.value))}
               min="0"
+              step="1"
               className="w-full"
               disabled={isLoading}
             />
             <p className="text-xs text-gray-500 mt-1">
-              Number of weeks you can take off from tracking habits without penalty.
+              How many days a calendar year you can mark as holidays from Daily Entries. No fines are
+              calculated on a holiday, but you still record entries as usual.
+              {" "}Used in {currentYear}: {usedHolidaysThisYear} day{usedHolidaysThisYear === 1 ? "" : "s"}.
             </p>
           </div>
           <div className="mb-4">

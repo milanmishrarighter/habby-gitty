@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Progress } from "@/components/ui/progress";
 import { getDaysInYear, differenceInDays, startOfYear, endOfYear, format, isThisYear } from 'date-fns';
 import { showSuccess, showError } from "@/utils/toast";
-import { isSentinelTracking } from "@/utils/dayType";
+import { isSentinelTracking } from "@/utils/trackingSentinels";
 
 interface YearlyTrackingCounts {
   [habitId: string]: {

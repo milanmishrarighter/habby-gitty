@@ -1,5 +1,4 @@
 import { Habit } from "@/types/habit";
-import { DayType } from "@/utils/dayType";
 import { normalizeCondition } from "@/utils/habitConditions";
 
 /** Tracking values still offered for new entries (archived ones excluded). */
@@ -30,7 +29,6 @@ export const mapSupabaseHabitToHabit = (supabaseHabit: any): Habit => {
       ? supabaseHabit.archived_tracking_values
       : [],
     hintText: supabaseHabit.hint_text || '', // Map new field
-    dayType: (supabaseHabit.day_type as DayType) || 'hard',
     allowTemporaryHold: supabaseHabit.allow_temporary_hold ?? false,
     isDeactivated: supabaseHabit.is_deactivated ?? false,
     created_at: supabaseHabit.created_at,

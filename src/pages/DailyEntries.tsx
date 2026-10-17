@@ -7,35 +7,30 @@ import OverwriteConfirmationModal from "@/components/OverwriteConfirmationModal"
 import { showSuccess, showError, showInfo, dismissToast } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
-import { YearlyOutOfControlMissCount, WeeklyOffRecord } from "@/types/tracking";
+import { YearlyOutOfControlMissCount } from "@/types/tracking";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays, isMonday, getISOWeek, eachDayOfInterval } from 'date-fns';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, addDays, eachDayOfInterval, parseISO } from 'date-fns';
 import { differenceInCalendarDays } from 'date-fns';
 import { cn } from "@/lib/utils";
-import { Switch } from "@/components/ui/switch";
 import { AppSettings } from "@/types/appSettings";
 import { runConditionsForHabits } from "@/utils/conditionRunner";
 import HealthCard from "@/components/HealthCard";
 import SaveProgressDialog, { SaveStep, RegisteredAmount } from "@/components/SaveProgressDialog";
 import UpcomingReminders from "@/components/UpcomingReminders";
 import SupabaseUsage from "@/components/SupabaseUsage";
+import HolidayPanel from "@/components/HolidayPanel";
 import {
   DailyHealthRecord, CalorieSettings, EMPTY_CALORIE_SETTINGS, emptyHealthRecord, mapSupabaseHealthRecord,
   MISSED_DAY_FINES, CHEAT_DAY_UNDER_REWARD, CHEAT_DAY_OVER_FINE, CHEAT_DAY_OVER_FREE_PER_MONTH, cheatDayMeal, missedDayMeal,
+  DAILY_CALORIE_LIMIT_KCAL, DAILY_CALORIE_LIMIT_FINE, isOverDailyCalorieLimit,
 } from "@/types/health";
 import { readCalorieSettings, calorieTotals, calorieBandFor, summariseWeek, AllowanceUsage } from "@/utils/healthUtils";
+import { isSentinelTracking, hasRealTrackedValue, WEEK_OFF, TEMP_HOLD } from "@/utils/trackingSentinels";
+import { sendAlertEmail } from "@/utils/alertEmail";
 import {
-  DayType,
-  DAY_TYPES,
-  DAY_TYPE_LABELS,
-  isHabitActiveOnDayType,
-  isSentinelTracking,
-  hasRealTrackedValue,
-  WEEK_OFF,
-  TEMP_HOLD,
-  DIFFICULTY_SKIP,
-} from "@/utils/dayType";
+  HolidayRange, isHoliday, readHolidayRanges, readHolidaysAllowed, fetchHolidayRanges,
+} from "@/utils/holidays";
 
 interface DailyEntriesProps {
   setActiveTab: (tab: string) => void;
@@ -65,12 +60,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [entryDate, setEntryDate] = React.useState(getTodayDate());
   const [isRangeMode, setIsRangeMode] = React.useState(false);
   const [rangeEndDate, setRangeEndDate] = React.useState(getTodayDate());
-  // One day type per date, so each day of a range can be marked on its own.
-  const [dayTypeByDate, setDayTypeByDate] = React.useState<{ [date: string]: DayType | null }>({});
   const [journalText, setJournalText] = React.useState("");
   const [moodEmoji, setMoodEmoji] = React.useState("");
   const [newLearningText, setNewLearningText] = React.useState("");
-  const [miscTextTracking, setMiscTextTracking] = React.useState("");
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [dailyTracking, setDailyTracking] = React.useState<DailyTrackingMap>({});
   const [yearlyProgress, setYearlyProgress] = React.useState<{ [year: string]: { [habitId: string]: number } }>({});
@@ -86,12 +78,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   const [highlightDate, setHighlightDate] = React.useState(false);
   const toastIdRef = React.useRef<string | number | null>(null);
 
-  // Week off feature
   const [appSettings, setAppSettings] = React.useState<AppSettings | null>(null);
-  const [currentWeekOffRecord, setCurrentWeekOffRecord] = React.useState<WeeklyOffRecord | null>(null);
-  const [usedWeekOffsCount, setUsedWeekOffsCount] = React.useState<number>(0);
-  const [isWeekOffLoading, setIsWeekOffLoading] = React.useState(false);
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
+
+  // Holidays: no fines are calculated on these dates. Null until loaded, so
+  // nothing that depends on them (like the late-entry fine) runs too early.
+  const [holidayRanges, setHolidayRanges] = React.useState<HolidayRange[] | null>(null);
+  const [holidaysAllowed, setHolidaysAllowed] = React.useState(0);
 
   const [missedDaysGap, setMissedDaysGap] = React.useState<number>(0);
   const missedFineAppliedForDateRef = React.useRef<string | null>(null);
@@ -135,20 +128,12 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
   // Deactivated habits are retired: never tracked on new entries, history kept.
   const activeHabits = React.useMemo(() => habits.filter(habit => !habit.isDeactivated), [habits]);
-  // The day type is a marker, not a filter: every active habit stays on screen.
-  // The ones this day calls for are highlighted, and only those must be filled
-  // in before the entry can be saved.
-  const dayTypeFor = React.useCallback(
-    (date: string): DayType | null => dayTypeByDate[date] ?? null,
-    [dayTypeByDate],
+
+  const holidayDatesOnScreen = React.useMemo(
+    () => activeDates.filter(date => isHoliday(holidayRanges || [], date)),
+    [activeDatesKey, holidayRanges], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const setDayTypeFor = (date: string, type: DayType | null) =>
-    setDayTypeByDate(prev => ({ ...prev, [date]: type }));
-  /** Whether the day type chosen for `date` calls for this habit. */
-  const isRequiredOn = React.useCallback(
-    (habit: Habit, date: string) => isHabitActiveOnDayType(habit.dayType, dayTypeFor(date)),
-    [dayTypeFor],
-  );
+  const isEntryDateHoliday = !!entryDate && isHoliday(holidayRanges || [], entryDate);
 
   // Effect to set default date, highlight, and show hint
   React.useEffect(() => {
@@ -204,6 +189,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     const todayStr = format(new Date(), 'yyyy-MM-dd');
     const gap = differenceInCalendarDays(new Date(todayStr), new Date(entryDate));
     setMissedDaysGap(gap);
+    // Wait for the holidays to load: a holiday is never fined for being late,
+    // which is exactly when entries tend to pile up.
+    if (holidayRanges === null || isHoliday(holidayRanges, entryDate)) return;
     // If gap >= 3 days, add a ₹500 weekly fine (once per loaded date)
     if (gap >= 3) {
       const uniqueKey = `${entryDate}:${todayStr}`;
@@ -214,7 +202,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         })();
       }
     }
-  }, [entryDate]);
+  }, [entryDate, holidayRanges]);
 
   // Effect to check authentication status
   React.useEffect(() => {
@@ -339,6 +327,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         setAppSettings(settingsData as AppSettings);
         setCalorieSettings(readCalorieSettings(settingsData.settings_data));
       }
+      // Loaded even when settings failed, so fines that wait on holidays still run.
+      setHolidayRanges(readHolidayRanges(settingsData?.settings_data));
+      setHolidaysAllowed(readHolidaysAllowed(settingsData?.settings_data));
     };
     fetchInitialData();
   }, []);
@@ -391,24 +382,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setJournalText("");
       setMoodEmoji("");
       setNewLearningText("");
-      setMiscTextTracking("");
       setEntryIdsByDate({});
       setDailyTracking({});
       setYearlyProgress({});
       setYearlyOutOfControlMissCounts({});
       setWeeklyTrackingCounts({});
       setMonthlyTrackingCounts({});
-      setCurrentWeekOffRecord(null);
-      setUsedWeekOffsCount(0);
       return;
     }
 
     const firstDate = activeDates[0];
     const lastDate = activeDates[activeDates.length - 1];
-    const selectedDate = new Date(firstDate);
-    const currentYear = selectedDate.getFullYear().toString();
-    const currentWeekNumber = getISOWeek(selectedDate);
-    const { data: { user } } = await supabase.auth.getUser();
+    const currentYear = new Date(firstDate).getFullYear().toString();
 
     // Fetch daily entries across the active dates
     const { data: entriesData, error: entriesError } = await supabase
@@ -422,19 +407,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setJournalText("");
       setMoodEmoji("");
       setNewLearningText("");
-      setMiscTextTracking("");
       setEntryIdsByDate({});
     } else {
       const ids: { [date: string]: string } = {};
-      const loadedDayTypes: { [date: string]: DayType | null } = {};
-      activeDates.forEach(date => { loadedDayTypes[date] = null; });
       (entriesData || []).forEach(row => {
-        const date = format(new Date(row.date), 'yyyy-MM-dd');
-        ids[date] = row.id;
-        loadedDayTypes[date] = (row.day_type as DayType) || null;
+        ids[format(new Date(row.date), 'yyyy-MM-dd')] = row.id;
       });
       setEntryIdsByDate(ids);
-      setDayTypeByDate(loadedDayTypes);
 
       // The written entry lives on the last date of the span, so prefill from
       // there and fall back to the latest entry that isn't just a pointer.
@@ -447,14 +426,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         setJournalText(isSummaryPointer(existing.text) ? "" : (existing.text || ""));
         setMoodEmoji(existing.mood || "");
         setNewLearningText(isSummaryPointer(existing.new_learning_text) ? "" : (existing.new_learning_text || ""));
-        setMiscTextTracking(isSummaryPointer(existing.misc_text_tracking) ? "" : (existing.misc_text_tracking || ""));
-
       } else {
         setJournalText("");
         setMoodEmoji("");
         setNewLearningText("");
-        setMiscTextTracking("");
-
       }
     }
 
@@ -518,23 +493,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       setYearlyOutOfControlMissCounts(newMissCounts);
     }
 
-    // Fetch current week off record and total used week offs for the year
-    const { data: weekOffsData, error: weekOffsError } = await supabase
-      .from('weekly_offs')
-      .select('*')
-      .eq('year', currentYear);
-
-    if (weekOffsError) {
-      console.error("Error fetching weekly offs:", weekOffsError);
-      showError("Failed to load weekly off data.");
-      setCurrentWeekOffRecord(null);
-      setUsedWeekOffsCount(0);
-    } else {
-      const currentWeekOff = weekOffsData.find(wo => wo.week_number === currentWeekNumber && wo.is_off);
-      setCurrentWeekOffRecord(currentWeekOff || null);
-      setUsedWeekOffsCount(weekOffsData.filter(wo => wo.is_off).length);
-    }
-
     // Health: load the record for the summary date, plus the surrounding week so
     // the target/maintaining allowances can be counted.
     const { data: healthRows, error: healthError } = await supabase
@@ -589,28 +547,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       problems.push({ label, elementId });
     };
 
-    activeDates.forEach(date => {
-      if (!dayTypeFor(date)) {
-        flagMissing(
-          activeDates.length > 1 ? `Day Type (${format(new Date(date), 'd MMM')})` : "Day Type",
-          `day-type-${date}`,
-        );
-      }
-    });
     if (!journalText.trim()) flagMissing("Journal Entry", "journal-entry");
-    if (!miscTextTracking.trim()) flagMissing("Misc. text tracking", "misc-text-tracking");
     if (!moodEmoji) flagMissing("Mood of the Day", "mood-picker");
 
-    // Every visible habit needs a value, a miss, or a hold — on every date.
+    // Every visible habit needs a value, a miss, or a hold — on every date,
+    // holidays included: a holiday turns fines off, not tracking.
     const missingHabits: string[] = [];
     activeHabits.forEach((habit) => {
       const untrackedDates = activeDates.filter(date => {
-        // Only dates whose day type calls for this habit can block the save.
-        if (!isRequiredOn(habit, date)) return false;
         const record = dailyTracking[date]?.[habit.id];
         const values = record?.trackedValues;
-        // A week off or a temporary hold counts as handled; a stale skip marker
-        // from a harder day does not — this habit is required today.
+        // A week off (from before holidays replaced them) or a temporary hold
+        // counts as handled; a stale day-type skip marker does not.
         const isHandled = hasRealTrackedValue(values)
           || !!values?.includes(WEEK_OFF)
           || !!values?.includes(TEMP_HOLD);
@@ -649,7 +597,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
   const SAVE_STEPS: { id: string; label: string }[] = [
     { id: "entry", label: "Saving journal entry" },
-    { id: "skips", label: "Marking habits the day didn't require" },
     { id: "health", label: "Saving health details" },
     { id: "learning", label: "Checking the learning reward" },
     { id: "conditions", label: "Checking habit conditions, fines, rewards and emails" },
@@ -701,18 +648,33 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       return;
     }
 
-    await runSaveStep("skips", recordDifficultySkips);
+    // Holidays are re-read here rather than trusted from state, because every
+    // fine below depends on them.
+    let holidays: HolidayRange[] = holidayRanges || [];
+    try {
+      holidays = await fetchHolidayRanges();
+      setHolidayRanges(holidays);
+    } catch (err) {
+      console.error("Falling back to the holidays already loaded:", err);
+    }
+
     await runSaveStep("health", async () => {
-      await saveHealthForDates();
+      const notes = await saveHealthForDates(holidays);
+      return notes.length > 0 ? notes.join(' ') : undefined;
     });
     await runSaveStep("learning", async () => {
       const note = await syncLearningReward(summaryDate);
       return note ?? "No learning entered, so no reward";
     });
     await runSaveStep("conditions", async () => {
-      const outcomes = await runConditionsForHabits(activeHabits, activeDates);
+      const outcomes = await runConditionsForHabits(activeHabits, activeDates, holidays);
       const emailed = [...new Set(outcomes.flatMap(o => o.emailedTo))];
-      return emailed.length > 0 ? `Email sent to ${emailed.join(', ')}` : undefined;
+      const holidayCount = activeDates.filter(date => isHoliday(holidays, date)).length;
+      const notes = [
+        emailed.length > 0 ? `Email sent to ${emailed.join(', ')}` : '',
+        holidayCount > 0 ? `${holidayCount} holiday day${holidayCount === 1 ? '' : 's'} — no fines for ${holidayCount === 1 ? 'it' : 'them'}.` : '',
+      ].filter(Boolean);
+      return notes.length > 0 ? notes.join(' ') : undefined;
     });
 
     savedThroughDateRef.current = summaryDate;
@@ -775,8 +737,8 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         text: isSummaryDate ? journalText.trim() : pointerText,
         mood: moodEmoji,
         new_learning_text: isSummaryDate ? (newLearningText.trim() || null) : pointerText,
-        misc_text_tracking: isSummaryDate ? (miscTextTracking.trim() || null) : pointerText,
-        day_type: dayTypeFor(date),
+        // misc_text_tracking and day_type are retired. They are left out rather
+        // than cleared, so whatever older entries hold is kept.
         timestamp,
       };
     };
@@ -837,55 +799,11 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   };
 
   /**
-   * Marks every habit that each date's difficulty excused with DIFFICULTY_SKIP.
-   * A habit that already carries a real tracked value, an out-of-control miss
-   * or a week off for that date is left alone. Throws on failure.
-   */
-  const recordDifficultySkips = async (): Promise<string | void> => {
-    const records: {
-      date: string; habit_id: string; tracked_values: string[]; is_out_of_control_miss: boolean;
-    }[] = [];
-
-    for (const date of activeDates) {
-      if (!dayTypeFor(date)) continue;
-      for (const habit of activeHabits.filter(h => !isRequiredOn(h, date))) {
-        const existing = dailyTracking[date]?.[habit.id];
-        if (hasRealTrackedValue(existing?.trackedValues) || existing?.isOutOfControlMiss) continue;
-        if (existing?.trackedValues?.includes(WEEK_OFF)) continue;
-        records.push({
-          date,
-          habit_id: habit.id,
-          tracked_values: [DIFFICULTY_SKIP],
-          is_out_of_control_miss: false,
-        });
-      }
-    }
-
-    if (records.length === 0) return "None needed";
-
-    const { error } = await supabase
-      .from('daily_habit_tracking')
-      .upsert(records, { onConflict: 'date,habit_id' });
-    if (error) throw new Error(error.message);
-
-    setDailyTracking(prev => {
-      const next = { ...prev };
-      records.forEach(({ date, habit_id }) => {
-        next[date] = {
-          ...(next[date] || {}),
-          [habit_id]: { trackedValues: [DIFFICULTY_SKIP], isOutOfControlMiss: false },
-        };
-      });
-      return next;
-    });
-    return `${records.length} marked`;
-  };
-
-  /**
    * Writes the health record for every active date, then syncs the calorie
-   * reward and missed-day fine. Returns notes for the summary; throws on failure.
+   * reward and the health fines. No health fine applies on a holiday.
+   * Returns notes for the summary; throws on failure.
    */
-  const saveHealthForDates = async (): Promise<string[]> => {
+  const saveHealthForDates = async (holidays: HolidayRange[]): Promise<string[]> => {
     const notes: string[] = [];
     const rows: any[] = [];
     for (const date of activeDates) {
@@ -923,10 +841,13 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
 
     let rewardTotal = 0;
     let fineTotal = 0;
+    let overLimitTotal = 0;
+    const overLimitEmailed = new Set<string>();
 
     for (const date of activeDates) {
       const record = healthRecords[date];
       if (!record) continue;
+      const onHoliday = isHoliday(holidays, date);
 
       const { average } = calorieTotals(record.meals, record.caloriesBurned);
       const band = calorieBandFor(average, calorieSettings);
@@ -948,17 +869,55 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       fineTotal += await syncAutoEntry({
         key: `AUTO:HEALTH:MISSED:${date}`,
         date,
-        applies: record.missedDay && missedFine > 0,
+        applies: record.missedDay && missedFine > 0 && !onHoliday,
         type: 'fine',
         amount: missedFine,
         cause: `Fine: health tracking missed on ${date} — eating recorded as '${grade}'.`,
       });
+
+      // Going over the daily limit on a normal day: a fine, and an email to
+      // the accountability contacts from Settings.
+      const overLimit = isOverDailyCalorieLimit(record, average) && !onHoliday;
+      overLimitTotal += await syncAutoEntry({
+        key: `AUTO:HEALTH:OVER_LIMIT:${date}`,
+        date,
+        applies: overLimit,
+        type: 'fine',
+        amount: DAILY_CALORIE_LIMIT_FINE,
+        cause: `Fine: ate more than ${DAILY_CALORIE_LIMIT_KCAL} kcal on ${date} (${Math.round(average)} kcal).`,
+      });
+      if (overLimit) {
+        const emailed = await emailOverLimit(date, average);
+        emailed.forEach(email => overLimitEmailed.add(email));
+      }
     }
 
     if (rewardTotal > 0) notes.push(`₹${rewardTotal} reward for hitting your calorie target.`);
     if (fineTotal > 0) notes.push(`₹${fineTotal} fine for missed health tracking.`);
-    notes.push(...await syncCheatDayOutcomes());
+    if (overLimitTotal > 0) notes.push(`₹${overLimitTotal} fine for going over ${DAILY_CALORIE_LIMIT_KCAL} kcal.`);
+    if (overLimitEmailed.size > 0) notes.push(`Email sent to ${[...overLimitEmailed].join(', ')}.`);
+    notes.push(...await syncCheatDayOutcomes(holidays));
     return notes;
+  };
+
+  /** Tells the accountability contacts about a day over the calorie limit, once per date. */
+  const emailOverLimit = async (date: string, averageKcal: number): Promise<string[]> => {
+    const recipients: string[] = Array.isArray(appSettings?.settings_data?.accountability_emails)
+      ? appSettings!.settings_data.accountability_emails
+      : [];
+    const when = date === format(new Date(), 'yyyy-MM-dd')
+      ? 'today'
+      : `on ${format(parseISO(date), 'EEEE, d MMMM yyyy')}`;
+    return sendAlertEmail({
+      recipients,
+      subject: `Milan ate more than ${DAILY_CALORIE_LIMIT_KCAL} calories ${when}`,
+      body: `Milan ate more than ${DAILY_CALORIE_LIMIT_KCAL} calories ${when} (about ${Math.round(averageKcal)} kcal).\n`
+        + `He owes you ${DAILY_CALORIE_LIMIT_FINE}₹.\n\n`
+        + `Make sure he pays up. You are his assigned accountability partner!\n`,
+      alertKey: `AUTO:HEALTH:OVER_LIMIT:${date}`,
+      sourceId: 'HEALTH',
+      periodKey: date,
+    });
   };
 
   /**
@@ -966,9 +925,10 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
    * Went over: free the first two times in a calendar month, then a fine for
    * each one after. The fine depends on the whole month, so the month is
    * re-ranked from the database and every date in it is re-synced — editing
-   * an earlier date correctly shifts which later days are fined.
+   * an earlier date correctly shifts which later days are fined. A holiday
+   * cheat day is never fined and doesn't use up one of the free ones.
    */
-  const syncCheatDayOutcomes = async (): Promise<string[]> => {
+  const syncCheatDayOutcomes = async (holidays: HolidayRange[]): Promise<string[]> => {
     let rewardTotal = 0;
     let fineTotal = 0;
 
@@ -999,15 +959,16 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
         .order('date', { ascending: true });
       if (error) throw new Error(error.message);
 
-      const overDates = (data || [])
+      const allOverDates = (data || [])
         .filter((row: any) => row.is_cheat_day && !row.missed_day && row.cheat_day_outcome === 'over')
         .map((row: any) => format(new Date(row.date), 'yyyy-MM-dd'));
+      const overDates = allOverDates.filter(date => !isHoliday(holidays, date));
       const overSet = new Set(overDates);
 
       // Every date in the month that could hold a fine: the over days, plus
       // anything being saved now (which may have just stopped being one).
       const candidates = [...new Set([
-        ...overDates,
+        ...allOverDates,
         ...activeDates.filter(date => date.startsWith(month)),
       ])];
 
@@ -1088,11 +1049,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     isOutOfControlMiss: boolean,
     oldIsOutOfControlMiss: boolean,
   ) => {
-    if (currentWeekOffRecord?.is_off) {
-      showError("This week is marked as 'Week Off'. Individual habit tracking is disabled.");
-      return;
-    }
-
     const dailyTrackingRecord = {
       date: date,
       habit_id: habitId,
@@ -1166,10 +1122,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
   };
 
   const handleToggleTemporaryHold = async (habit: Habit, dates: string[], hold: boolean) => {
-    if (currentWeekOffRecord?.is_off) {
-      showError("This week is marked as 'Week Off'. Individual habit tracking is disabled.");
-      return;
-    }
     if (!habit.allowTemporaryHold) {
       showError(`'${habit.name}' is not allowed to be put on temporary hold.`);
       return;
@@ -1253,143 +1205,9 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     );
   };
 
-  const handleToggleWeekOff = async (checked: boolean) => {
-    if (!isAuthenticated) {
-      showError("You must be logged in to mark a week off.");
-      setIsWeekOffLoading(false);
-      return;
-    }
-
-    if (!entryDate || !isMonday(new Date(entryDate))) {
-      showError("You can only mark a week off starting on a Monday.");
-      return;
-    }
-
-    setIsWeekOffLoading(true);
-    const selectedDate = new Date(entryDate);
-    const currentYear = selectedDate.getFullYear().toString();
-    const currentWeekNumber = getISOWeek(selectedDate);
-    const startOfCurrentWeek = startOfWeek(selectedDate, { weekStartsOn: 1 });
-    const endOfCurrentWeek = endOfWeek(selectedDate, { weekStartsOn: 1 });
-    const daysInWeek = eachDayOfInterval({ start: startOfCurrentWeek, end: endOfCurrentWeek });
-
-    const allowedWeekOffs = appSettings?.settings_data?.yearly_week_offs_allowed || 0;
-
-    if (checked) {
-      if (usedWeekOffsCount >= allowedWeekOffs) {
-        showError(`You have used all ${allowedWeekOffs} allowed yearly week offs.`);
-        setIsWeekOffLoading(false);
-        return;
-      }
-
-      const { error: upsertWeekOffError } = await supabase
-        .from('weekly_offs')
-        .upsert({ year: currentYear, week_number: currentWeekNumber, is_off: true }, { onConflict: 'year,week_number' });
-
-      if (upsertWeekOffError) {
-        console.error("Error marking week off:", upsertWeekOffError);
-        showError("Failed to mark week off.");
-        setIsWeekOffLoading(false);
-        return;
-      }
-
-      const trackingRecordsToUpsert = [];
-      const newDailyTrackingForWeek: DailyTrackingMap = {};
-
-      for (const day of daysInWeek) {
-        const formattedDay = format(day, 'yyyy-MM-dd');
-        newDailyTrackingForWeek[formattedDay] = {};
-        for (const habit of activeHabits) {
-          trackingRecordsToUpsert.push({
-            date: formattedDay,
-            habit_id: habit.id,
-            tracked_values: [WEEK_OFF],
-            is_out_of_control_miss: false,
-          });
-          newDailyTrackingForWeek[formattedDay][habit.id] = {
-            trackedValues: [WEEK_OFF],
-            isOutOfControlMiss: false,
-          };
-        }
-      }
-
-      if (trackingRecordsToUpsert.length > 0) {
-        const { error: upsertTrackingError } = await supabase
-          .from('daily_habit_tracking')
-          .upsert(trackingRecordsToUpsert, { onConflict: 'date,habit_id' });
-
-        if (upsertTrackingError) {
-          console.error("Error updating daily tracking for week off:", upsertTrackingError);
-          showError("Failed to update habit tracking for week off.");
-          setIsWeekOffLoading(false);
-          return;
-        }
-      }
-
-      showSuccess(`Week ${currentWeekNumber} marked as 'Week Off' for all habits!`);
-      setCurrentWeekOffRecord({ id: 'temp', year: currentYear, week_number: currentWeekNumber, is_off: true, created_at: new Date().toISOString() });
-      setUsedWeekOffsCount(prev => prev + 1);
-
-      setDailyTracking(prev => ({ ...prev, ...newDailyTrackingForWeek }));
-      fetchDataForDates();
-    } else {
-      const { error: deleteWeekOffError } = await supabase
-        .from('weekly_offs')
-        .delete()
-        .eq('year', currentYear)
-        .eq('week_number', currentWeekNumber);
-
-      if (deleteWeekOffError) {
-        console.error("Error unmarking week off:", deleteWeekOffError);
-        showError("Failed to unmark week off.");
-        setIsWeekOffLoading(false);
-        return;
-      }
-
-      const datesInWeek = daysInWeek.map(day => format(day, 'yyyy-MM-dd'));
-      const { error: deleteTrackingError } = await supabase
-        .from('daily_habit_tracking')
-        .delete()
-        .in('date', datesInWeek)
-        .contains('tracked_values', [WEEK_OFF]);
-
-      if (deleteTrackingError) {
-        console.error("Error deleting daily tracking for unmark week off:", deleteTrackingError);
-        showError("Failed to clear habit tracking for unmarking week off.");
-        setIsWeekOffLoading(false);
-        return;
-      }
-
-      showSuccess(`Week ${currentWeekNumber} unmarked. Habit tracking is now active.`);
-      setCurrentWeekOffRecord(null);
-      setUsedWeekOffsCount(prev => Math.max(0, prev - 1));
-
-      setDailyTracking(prev => {
-        const updatedPrev = { ...prev };
-        for (const day of daysInWeek) {
-          const formattedDay = format(day, 'yyyy-MM-dd');
-          if (updatedPrev[formattedDay]) {
-            for (const habit of activeHabits) {
-              if (updatedPrev[formattedDay][habit.id]?.trackedValues.includes(WEEK_OFF)) {
-                updatedPrev[formattedDay][habit.id] = { trackedValues: [], isOutOfControlMiss: false };
-              }
-            }
-          }
-        }
-        return updatedPrev;
-      });
-      fetchDataForDates();
-    }
-    setIsWeekOffLoading(false);
-  };
-
   const handleSetupHabitClick = () => {
     setActiveTab("setup");
   };
-
-  const isCurrentDateMonday = isMonday(new Date(entryDate));
-  const remainingWeekOffs = (appSettings?.settings_data?.yearly_week_offs_allowed || 0) - usedWeekOffsCount;
-
 
   const currentYearForDisplay = activeDates.length > 0
     ? new Date(activeDates[0]).getFullYear().toString()
@@ -1400,68 +1218,18 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       <h2 className="text-2xl font-bold text-gray-800 mb-4">Daily Entries</h2>
       <SupabaseUsage />
       <p className="text-gray-600 mb-6">
-        Pick the kind of day, then the date, to begin your entry.
+        Pick the date to begin your entry.
       </p>
 
-      {/* Day Type Selector — one row per date in a range */}
       <div className="flex flex-col items-center justify-center mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          {activeDates.length > 1 ? "How was each day?" : "How was the day?"}
-        </label>
-        <div id="day-type-selector" className="flex flex-col items-center gap-3">
-          {activeDates.map((date) => {
-            const chosen = dayTypeFor(date);
-            const requiredCount = activeHabits.filter(h => isRequiredOn(h, date)).length;
-            return (
-              <div key={date} id={`day-type-${date}`} className="flex flex-col items-center">
-                {activeDates.length > 1 && (
-                  <span className="text-xs font-semibold text-gray-600 mb-1">
-                    {format(new Date(date), 'EEE, d MMM')}
-                  </span>
-                )}
-                <div className="flex flex-wrap justify-center gap-2">
-                  {DAY_TYPES.map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setDayTypeFor(date, chosen === type ? null : type)}
-                      className={cn(
-                        "px-5 py-2 rounded-full border-2 font-semibold transition-colors duration-200",
-                        chosen === type
-                          ? "bg-blue-600 border-blue-600 text-white shadow"
-                          : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
-                      )}
-                    >
-                      {DAY_TYPE_LABELS[type]}
-                    </button>
-                  ))}
-                </div>
-                {chosen && requiredCount < activeHabits.length && activeDates.length === 1 && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    {requiredCount} habit{requiredCount === 1 ? " is" : "s are"} required on a {DAY_TYPE_LABELS[chosen].toLowerCase()} and {requiredCount === 1 ? "is" : "are"} outlined below.
-                    {" "}The rest can still be recorded as normal — they just won't block saving.
-                  </p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex flex-col items-center justify-center mb-6">
-        {isCurrentDateMonday && appSettings && (
-          <div className="flex items-center justify-between w-full max-w-sm mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <label htmlFor="take-week-off-switch" className="flex-grow text-sm font-medium text-blue-800 text-left cursor-pointer">
-              Take this week off
-              <p className="text-xs text-blue-600">({remainingWeekOffs} / {appSettings.settings_data.yearly_week_offs_allowed} remaining this year)</p>
-            </label>
-            <Switch
-              id="take-week-off-switch"
-              checked={currentWeekOffRecord?.is_off || false}
-              onCheckedChange={handleToggleWeekOff}
-              disabled={isWeekOffLoading || (!currentWeekOffRecord?.is_off && remainingWeekOffs <= 0) || !isAuthenticated}
-            />
-          </div>
+        {holidayRanges !== null && (
+          <HolidayPanel
+            entryDates={activeDates}
+            ranges={holidayRanges}
+            allowedPerYear={holidaysAllowed}
+            onRangesChange={setHolidayRanges}
+            isAuthenticated={isAuthenticated}
+          />
         )}
 
         <UpcomingReminders fromDate={activeDates[0] ?? entryDate} />
@@ -1524,7 +1292,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           </div>
         )}
 
-        {missedDaysGap === 2 && (
+        {missedDaysGap === 2 && !isEntryDateHoliday && (
           <div className="mt-2 w-full max-w-sm p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
             Heads up: If you miss entering tomorrow, a ₹500 fine will be applied.
           </div>
@@ -1553,18 +1321,6 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           placeholder="Enter your new learning here..."
           value={newLearningText}
           onChange={(e) => setNewLearningText(e.target.value)}
-        ></textarea>
-      </div>
-      {/* Misc. Text Tracking Field */}
-      <div className="flex flex-col items-center justify-center mb-6 w-full">
-        <label htmlFor="misc-text-tracking" className="block text-sm font-medium text-gray-700 mb-2">Misc. text tracking</label>
-        <textarea
-          id="misc-text-tracking"
-          rows={4}
-          className="mt-1 p-4 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full resize-y"
-          placeholder="Enter any additional notes..."
-          value={miscTextTracking}
-          onChange={(e) => setMiscTextTracking(e.target.value)}
         ></textarea>
       </div>
       {/* Mood Emoji Picker */}
@@ -1613,11 +1369,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
                   yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
                   weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
                   monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
-                  requiredOnDate={Object.fromEntries(
-                    activeDates
-                      .filter(date => dayTypeFor(date) !== null)
-                      .map(date => [date, isRequiredOn(habit, date)])
-                  )}
+                  holidayDates={holidayDatesOnScreen}
                 />
                 </div>
               );
@@ -1636,6 +1388,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
             settings={calorieSettings}
             weekUsage={weekUsage}
             dateLabel={activeDates.length > 1 ? format(new Date(date), 'EEE, d MMM') : undefined}
+            onHoliday={holidayDatesOnScreen.includes(date)}
           />
         ))}
       </div>

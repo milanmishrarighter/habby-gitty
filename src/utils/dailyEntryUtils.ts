@@ -1,9 +1,9 @@
 import { DailyEntry } from "@/types/dailyEntry";
-import { DayType } from "@/utils/dayType";
 
+// misc_text_tracking and day_type are retired: older rows still carry them in
+// the database, but they are no longer read or written.
 export const mapSupabaseEntryToDailyEntry = (supabaseEntry: any): DailyEntry => {
   const trimmedNewLearningText = supabaseEntry.new_learning_text ? String(supabaseEntry.new_learning_text).trim() : '';
-  const trimmedMiscText = supabaseEntry.misc_text_tracking ? String(supabaseEntry.misc_text_tracking).trim() : '';
   return {
     id: supabaseEntry.id,
     date: supabaseEntry.date,
@@ -11,7 +11,5 @@ export const mapSupabaseEntryToDailyEntry = (supabaseEntry: any): DailyEntry => 
     mood: supabaseEntry.mood,
     newLearningText: trimmedNewLearningText === '' ? undefined : trimmedNewLearningText, // Map snake_case to camelCase, ensure undefined for empty
     timestamp: supabaseEntry.timestamp,
-    miscTextTracking: trimmedMiscText === '' ? undefined : trimmedMiscText,
-    dayType: (supabaseEntry.day_type as DayType) || undefined,
   };
 };

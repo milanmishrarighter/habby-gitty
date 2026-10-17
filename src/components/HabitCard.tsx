@@ -3,7 +3,6 @@
 import React from 'react';
 import { Button } from "@/components/ui/button"; // Assuming you have a Button component
 import { Habit } from "@/types/habit"; // Import the centralized Habit interface
-import { DAY_TYPE_LABELS } from "@/utils/dayType";
 import { FREQUENCY_LABELS, resolveConditionAmount, resolveConditionRecipients } from "@/utils/habitConditions";
 
 interface HabitCardProps {
@@ -35,9 +34,6 @@ const HabitCard: React.FC<HabitCardProps> = ({ habit, onEdit, onDelete }) => {
             Deactivated
           </span>
         )}
-        <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-          {DAY_TYPE_LABELS[habit.dayType]}
-        </span>
         {habit.allowTemporaryHold && (
           <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
             Hold allowed

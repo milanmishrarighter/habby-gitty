@@ -1,4 +1,3 @@
-import { DayType } from "@/utils/dayType";
 import { HabitCondition } from "@/utils/habitConditions";
 
 export interface Habit {
@@ -22,7 +21,6 @@ export interface Habit {
   isTrackerOnly: boolean; // Recorded but never fined, rewarded or judged
   archivedTrackingValues: string[]; // Retired values, hidden from new entries
   hintText?: string; // New field for hint text
-  dayType: DayType; // Which day types this habit is required on
   allowTemporaryHold: boolean; // Whether this habit may be put on temporary hold
   isDeactivated: boolean; // Retired: hidden from Daily Entries, history retained
   created_at: string; // Changed to match Supabase's default column name and type

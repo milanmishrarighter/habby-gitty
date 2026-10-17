@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, getISOWeek, eachDayOfInterval } from 'date-fns'; // Added getISOWeek, eachDayOfInterval
 import { AppSettings } from "@/types/appSettings"; // Import AppSettings
-import { WEEK_OFF, TEMP_HOLD, isSentinelTracking } from "@/utils/dayType";
+import { WEEK_OFF, TEMP_HOLD, isSentinelTracking } from "@/utils/trackingSentinels";
 
 interface EditDailyEntryModalProps {
   isOpen: boolean;
@@ -492,7 +492,6 @@ const EditDailyEntryModal: React.FC<EditDailyEntryModalProps> = ({ isOpen, onClo
                       yearlyOutOfControlMissCounts={yearlyOutOfControlMissCounts}
                       weeklyTrackingCounts={weeklyTrackingCounts[habit.id] || {}}
                       monthlyTrackingCounts={monthlyTrackingCounts[habit.id] || {}}
-                      requiredOnDate={{}}
                     />
                   );
                 })}

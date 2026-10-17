@@ -9,9 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Habit } from "@/types/habit";
 import { supabase } from "@/lib/supabase";
 import { mapSupabaseHabitToHabit } from "@/utils/habitUtils"; // Import the new utility
-import HabitDayTypeFields from "@/components/HabitDayTypeFields";
+import TemporaryHoldField from "@/components/TemporaryHoldField";
 import { Switch } from "@/components/ui/switch";
-import { DayType } from "@/utils/dayType";
 import HabitConditionsEditor, { ConditionInput, emptyCondition } from "@/components/HabitConditionsEditor";
 import TrackingValuesEditor from "@/components/TrackingValuesEditor";
 
@@ -34,7 +33,6 @@ const HabitSetup: React.FC = () => {
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
   const [allowedOutOfControlMisses, setAllowedOutOfControlMisses] = React.useState<number | "">(""); // New state for allowed misses
   const [hintText, setHintText] = React.useState(""); // New state for hint text
-  const [dayType, setDayType] = React.useState<DayType>("hard");
   const [allowTemporaryHold, setAllowTemporaryHold] = React.useState(false);
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
@@ -121,7 +119,6 @@ const HabitSetup: React.FC = () => {
     setContributingValues([]);
     setAllowedOutOfControlMisses(""); // Reset new field
     setHintText(""); // Reset new field
-    setDayType("hard");
     setAllowTemporaryHold(false);
     setArchivedTrackingValues([]);
     setOocMissTriggersEmail(false);
@@ -166,7 +163,6 @@ const HabitSetup: React.FC = () => {
       },
       allowed_out_of_control_misses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0,
       hint_text: hintText.trim(),
-      day_type: dayType,
       allow_temporary_hold: allowTemporaryHold,
       archived_tracking_values: archivedTrackingValues,
       ooc_miss_triggers_email: oocMissTriggersEmail,
@@ -200,7 +196,7 @@ const HabitSetup: React.FC = () => {
   };
 
   const handleSaveEditedHabit = async (updatedHabit: Habit) => {
-    const { id, name, color, trackingValues, frequencyConditions, fineAmount, rewardAmount, alertEmails: habitAlertEmails, alertSubject: habitAlertSubject, alertBody: habitAlertBody, yearlyGoal, allowedOutOfControlMisses, hintText, dayType, allowTemporaryHold, isDeactivated, created_at } = updatedHabit;
+    const { id, name, color, trackingValues, frequencyConditions, fineAmount, rewardAmount, alertEmails: habitAlertEmails, alertSubject: habitAlertSubject, alertBody: habitAlertBody, yearlyGoal, allowedOutOfControlMisses, hintText, allowTemporaryHold, isDeactivated, created_at } = updatedHabit;
     const updatedHabitData = {
       name,
       color,
@@ -214,7 +210,6 @@ const HabitSetup: React.FC = () => {
       yearly_goal: yearlyGoal,
       allowed_out_of_control_misses: allowedOutOfControlMisses,
       hint_text: hintText,
-      day_type: dayType,
       allow_temporary_hold: allowTemporaryHold,
       is_deactivated: isDeactivated,
       archived_tracking_values: updatedHabit.archivedTrackingValues,
@@ -368,12 +363,10 @@ const HabitSetup: React.FC = () => {
           />
           <p className="text-xs text-gray-500 mt-1 text-left">A short reminder for this habit, displayed on the Daily Entries page.</p>
         </div>
-        {/* Day Type + Temporary Hold */}
+        {/* Temporary Hold */}
         <div className="w-full max-w-sm flex flex-col gap-4">
-          <HabitDayTypeFields
+          <TemporaryHoldField
             idSuffix="new"
-            dayType={dayType}
-            onDayTypeChange={setDayType}
             allowTemporaryHold={allowTemporaryHold}
             onAllowTemporaryHoldChange={setAllowTemporaryHold}
           />

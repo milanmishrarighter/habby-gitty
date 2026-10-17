@@ -1,4 +1,7 @@
-import { DailyHealthRecord, CalorieSettings, MealEntry, CHEAT_DAY_RECORDED_KCAL, MISSED_DAY_RECORDED_KCAL } from "@/types/health";
+import {
+  DailyHealthRecord, CalorieSettings, MealEntry, CHEAT_DAY_RECORDED_KCAL, MISSED_DAY_RECORDED_KCAL,
+  DAILY_CALORIE_LIMIT_KCAL, DAILY_CALORIE_LIMIT_FINE, isOverDailyCalorieLimit,
+} from "@/types/health";
 
 export interface CalorieTotals {
   min: number;
@@ -100,12 +103,23 @@ export const healthWarningsFor = (
   record: DailyHealthRecord,
   settings: CalorieSettings,
   weekUsage: AllowanceUsage,
+  onHoliday = false,
 ): HealthWarning[] => {
   const warnings: HealthWarning[] = [];
   if (record.meals.length === 0) return warnings;
 
   const { average } = calorieTotals(record.meals, record.caloriesBurned);
   const band = calorieBandFor(average, settings);
+
+  if (isOverDailyCalorieLimit(record, average)) {
+    warnings.push({
+      text: onHoliday
+        ? `${Math.round(average)} kcal is over ${DAILY_CALORIE_LIMIT_KCAL}, but you're on holiday, so there's no fine.`
+        : `${Math.round(average)} kcal is over ${DAILY_CALORIE_LIMIT_KCAL} — a ₹${DAILY_CALORIE_LIMIT_FINE} fine on save, `
+          + `and your accountability partners get an email.`,
+      tone: onHoliday ? "warning" : "error",
+    });
+  }
 
   if (band === "unset") {
     warnings.push({ text: BAND_LABELS.unset, tone: "warning" });

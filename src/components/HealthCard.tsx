@@ -24,9 +24,11 @@ interface HealthCardProps {
   weekUsage: AllowanceUsage;
   /** Shown in the header when the card belongs to one date of a range. */
   dateLabel?: string;
+  /** No health fines are calculated on a holiday. */
+  onHoliday?: boolean;
 }
 
-const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, weekUsage, dateLabel }) => {
+const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, weekUsage, dateLabel, onHoliday = false }) => {
   const [savedMeals, setSavedMeals] = React.useState<SavedMeal[]>([]);
   const [foodName, setFoodName] = React.useState("");
   const [minCalorie, setMinCalorie] = React.useState<number | "">("");
@@ -164,7 +166,7 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
   // has to be scoped to the date this card belongs to.
   const uid = record.date;
   const totals = calorieTotals(record.meals, record.caloriesBurned);
-  const warnings = record.missedDay || record.isCheatDay ? [] : healthWarningsFor(record, settings, weekUsage);
+  const warnings = record.missedDay || record.isCheatDay ? [] : healthWarningsFor(record, settings, weekUsage, onHoliday);
 
   return (
     <div className="p-4 rounded-lg shadow-md flex flex-col space-y-4 bg-emerald-50 border border-emerald-200 text-left">
@@ -176,6 +178,12 @@ const HealthCard: React.FC<HealthCardProps> = ({ record, onChange, settings, wee
           </span>
         )}
       </div>
+
+      {onHoliday && (
+        <p className="p-2 rounded-md text-sm bg-sky-100 text-sky-800 border border-sky-300">
+          On holiday — record everything as usual, but no health fines are calculated for this day.
+        </p>
+      )}
 
       {/* Missed this day — everything below is skipped when this is on */}
       <div className="p-3 rounded-lg bg-white/70">

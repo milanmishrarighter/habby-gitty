@@ -6,7 +6,7 @@ import { showSuccess, showError } from '@/utils/toast';
 import { Habit } from '@/types/habit';
 import { YearlyOutOfControlMissCount } from '@/types/tracking';
 import { Switch } from "@/components/ui/switch";
-import { DAY_TYPE_LABELS, WEEK_OFF, TEMP_HOLD, hasRealTrackedValue } from '@/utils/dayType';
+import { WEEK_OFF, TEMP_HOLD, hasRealTrackedValue } from '@/utils/trackingSentinels';
 import { evaluateOperator, isSettledEarly, describeValueStatus, resolveConditionAmount } from '@/utils/habitConditions';
 import { activeTrackingValues } from '@/utils/habitUtils';
 
@@ -33,11 +33,8 @@ interface DailyHabitTrackerCardProps {
   yearlyOutOfControlMissCounts: { [habitId: string]: YearlyOutOfControlMissCount };
   weeklyTrackingCounts: { [trackingValue: string]: number };
   monthlyTrackingCounts: { [trackingValue: string]: number };
-  /**
-   * For each date that has a day type chosen, whether that day calls for this
-   * habit. Dates without a day type are absent, and nothing is outlined there.
-   */
-  requiredOnDate: { [date: string]: boolean };
+  /** Dates that are holidays: tracked as normal, but never fined. */
+  holidayDates?: string[];
 }
 
 const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
@@ -50,7 +47,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   yearlyOutOfControlMissCounts,
   weeklyTrackingCounts,
   monthlyTrackingCounts,
-  requiredOnDate,
+  holidayDates = [],
 }) => {
   const [isHoldLoading, setIsHoldLoading] = React.useState(false);
 
@@ -71,6 +68,9 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
   const allWeekOff = dates.every(isWeekOff);
   const allHeld = dates.length > 0 && dates.every(isHeld);
   const anyHeld = dates.some(isHeld);
+  const isHolidayDate = (date: string) => holidayDates.includes(date);
+  // Fines are off when every date on the card is a holiday.
+  const allHoliday = dates.length > 0 && dates.every(isHolidayDate);
 
   // Fine/warning message for the habit as a whole, based on the period counts.
   const fineOrWarningMessage = React.useMemo(() => {
@@ -91,8 +91,8 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
       const period = condition.frequency === 'weekly' ? 'week' : 'month';
 
       if (!evaluateOperator(actualCount, condition.operator, condition.count)) return;
-      // A temporary hold exempts the period from fines entirely.
-      if (condition.outcome === 'fine' && anyHeld) return;
+      // A temporary hold exempts the period from fines entirely, as does a holiday.
+      if (condition.outcome === 'fine' && (anyHeld || allHoliday)) return;
 
       const detail =
         `'${condition.trackingValue}' is at ${actualCount} this ${period} ` +
@@ -116,7 +116,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
       }
     });
 
-    if (allowedMisses > 0) {
+    if (allowedMisses > 0 && !allHoliday) {
       if (usedMisses > allowedMisses) {
         fines.push(`Fine: You have exceeded your ${allowedMisses} allowed out-of-control misses for '${habit.name}' this year.`);
       } else if (usedMisses === allowedMisses) {
@@ -127,7 +127,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     }
 
     return fines[0] || rewards[0] || warnings[0] || null;
-  }, [habit, weeklyTrackingCounts, monthlyTrackingCounts, allowedMisses, usedMisses, allWeekOff, allHeld, anyHeld]);
+  }, [habit, weeklyTrackingCounts, monthlyTrackingCounts, allowedMisses, usedMisses, allWeekOff, allHeld, anyHeld, allHoliday]);
 
   const handleValueClick = async (date: string, value: string) => {
     if (isWeekOff(date)) {
@@ -207,16 +207,14 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
     return (
       <div
         key={date}
-        className={isMultiDate
-          ? `rounded-lg bg-white/60 p-3 border ${requiredOnDate[date] === true ? "ring-2 ring-blue-500 border-blue-500" : "border-white"}`
-          : ""}
+        className={isMultiDate ? "rounded-lg bg-white/60 p-3 border border-white" : ""}
       >
         {isMultiDate && (
           <p className="text-sm font-semibold text-gray-700 text-left mb-2 flex items-center gap-2">
             {format(new Date(date), 'EEE, d MMM')}
-            {requiredOnDate[date] === true && (
-              <span className="bg-blue-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
-                Required
+            {isHolidayDate(date) && (
+              <span className="bg-sky-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                Holiday
               </span>
             )}
           </p>
@@ -236,7 +234,8 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
                       value,
                       weeklyTrackingCounts[value] || 0,
                       monthlyTrackingCounts[value] || 0,
-                    );
+                    // Nothing is fined on a holiday, so fine warnings would only mislead.
+                    ).filter(status => !(isHolidayDate(date) && status.tone === 'fine'));
 
                     return (
                       <div
@@ -295,11 +294,7 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
 
   return (
     <div
-      className={`p-4 rounded-lg flex flex-col space-y-3 shadow-md transition-all duration-200 ${
-        !isMultiDate && requiredOnDate[dates[0]] === true
-          ? "ring-4 ring-blue-500 ring-offset-2 shadow-lg"
-          : ""
-      }`}
+      className="p-4 rounded-lg flex flex-col space-y-3 shadow-md transition-all duration-200"
       style={{ backgroundColor: `${habit.color}33` }}
     >
       <div className="flex items-center justify-between">
@@ -314,21 +309,20 @@ const DailyHabitTrackerCard: React.FC<DailyHabitTrackerCardProps> = ({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 -mt-1">
-        <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-          {DAY_TYPE_LABELS[habit.dayType]}
-        </span>
-        {isMultiDate && (
-          <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-            {dates.length} days
-          </span>
-        )}
-        {!isMultiDate && requiredOnDate[dates[0]] === true && (
-          <span className="bg-blue-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full">
-            Required today
-          </span>
-        )}
-      </div>
+      {(isMultiDate || allHoliday) && (
+        <div className="flex flex-wrap gap-2 -mt-1">
+          {isMultiDate && (
+            <span className="bg-white/70 text-gray-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+              {dates.length} days
+            </span>
+          )}
+          {allHoliday && (
+            <span className="bg-sky-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full">
+              Holiday — no fines
+            </span>
+          )}
+        </div>
+      )}
 
       {habit.hintText && (
         <p className="text-sm text-gray-600 italic text-left">{habit.hintText}</p>

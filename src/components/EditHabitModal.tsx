@@ -6,10 +6,9 @@ import { Button } from "@/components/ui/button";
 import { showSuccess, showError } from "@/utils/toast";
 import { Habit } from "@/types/habit"; // Import the centralized Habit interface
 import { Switch } from "@/components/ui/switch";
-import HabitDayTypeFields from "@/components/HabitDayTypeFields";
+import TemporaryHoldField from "@/components/TemporaryHoldField";
 import HabitConditionsEditor, { ConditionInput, emptyCondition } from "@/components/HabitConditionsEditor";
 import TrackingValuesEditor from "@/components/TrackingValuesEditor";
-import { DayType } from "@/utils/dayType";
 
 interface EditHabitModalProps {
   isOpen: boolean;
@@ -29,7 +28,6 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
   const [contributingValues, setContributingValues] = React.useState<string[]>([]);
   const [allowedOutOfControlMisses, setAllowedOutOfControlMisses] = React.useState<number | "">(""); // New state
   const [hintText, setHintText] = React.useState(""); // New state for hint text
-  const [dayType, setDayType] = React.useState<DayType>("hard");
   const [allowTemporaryHold, setAllowTemporaryHold] = React.useState(false);
   const [isDeactivated, setIsDeactivated] = React.useState(false);
   const [rewardAmount, setRewardAmount] = React.useState<number | "">("");
@@ -63,7 +61,6 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       setContributingValues(initialHabit.yearlyGoal?.contributingValues || []); // Defensive check
       setAllowedOutOfControlMisses(initialHabit.allowedOutOfControlMisses === 0 ? "" : initialHabit.allowedOutOfControlMisses); // Set new field
       setHintText(initialHabit.hintText || ""); // Set new field
-      setDayType(initialHabit.dayType || "hard");
       setAllowTemporaryHold(initialHabit.allowTemporaryHold ?? false);
       setIsDeactivated(initialHabit.isDeactivated ?? false);
       setRewardAmount(initialHabit.rewardAmount === 0 ? "" : initialHabit.rewardAmount);
@@ -85,7 +82,6 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       setContributingValues([]);
       setAllowedOutOfControlMisses(""); // Reset new field
       setHintText(""); // Reset new field
-      setDayType("hard");
       setAllowTemporaryHold(false);
       setIsDeactivated(false);
       setRewardAmount("");
@@ -143,7 +139,6 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
       },
       allowedOutOfControlMisses: typeof allowedOutOfControlMisses === 'number' ? allowedOutOfControlMisses : 0, // Save new field
       hintText: hintText.trim(), // Save new field
-      dayType,
       allowTemporaryHold,
       isDeactivated,
       // created_at remains the same
@@ -207,11 +202,9 @@ const EditHabitModal: React.FC<EditHabitModalProps> = ({ isOpen, onClose, initia
             />
             <p className="text-xs text-gray-500 mt-1 text-left">A short reminder for this habit, displayed on the Daily Entries page.</p>
           </div>
-          {/* Day Type + Temporary Hold */}
-          <HabitDayTypeFields
+          {/* Temporary Hold */}
+          <TemporaryHoldField
             idSuffix="edit"
-            dayType={dayType}
-            onDayTypeChange={setDayType}
             allowTemporaryHold={allowTemporaryHold}
             onAllowTemporaryHoldChange={setAllowTemporaryHold}
           />

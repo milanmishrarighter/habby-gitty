@@ -1,6 +1,8 @@
 import { supabase } from "@/lib/supabase";
 import { Habit } from "@/types/habit";
-import { isSentinelTracking, TEMP_HOLD } from "@/utils/dayType";
+import { isSentinelTracking, TEMP_HOLD } from "@/utils/trackingSentinels";
+import { sendAlertEmail } from "@/utils/alertEmail";
+import { HolidayRange, isHoliday, countHolidayDaysBetween, datesBetween } from "@/utils/holidays";
 import { format } from "date-fns";
 import {
   HabitCondition,
@@ -31,30 +33,79 @@ export interface ConditionOutcomeSummary {
 const autoKey = (habitId: string, conditionIndex: number, periodKey: string) =>
   `${AUTO_PREFIX}:${habitId}:${conditionIndex}:${periodKey}`;
 
-/** How many times `trackingValue` was recorded for this habit in a date window. */
-const countTrackingsInRange = async (
-  habitId: string,
-  trackingValue: string,
-  start: string,
-  end: string,
-): Promise<number> => {
+type TrackingRow = { date: string; tracked_values: string[] };
+
+/** Every tracking record for this habit in a date window. */
+const fetchTrackingsInRange = async (habitId: string, start: string, end: string): Promise<TrackingRow[]> => {
   const { data, error } = await supabase
     .from('daily_habit_tracking')
-    .select('tracked_values')
+    .select('date, tracked_values')
     .eq('habit_id', habitId)
     .gte('date', start)
     .lte('date', end);
 
   if (error) {
     console.error("Error counting trackings for condition:", error);
-    return 0;
+    return [];
   }
+  return (data || []).map((row: any) => ({ date: String(row.date).slice(0, 10), tracked_values: row.tracked_values || [] }));
+};
 
-  return (data || []).reduce((total, record: { tracked_values: string[] }) => {
+/** How many times `trackingValue` was recorded across these rows. */
+const countValue = (rows: TrackingRow[], trackingValue: string): number =>
+  rows.reduce((total, record) => {
     // Week offs and temporary holds are deliberate skips — never counted.
     if (isSentinelTracking(record.tracked_values)) return total;
-    return total + (record.tracked_values || []).filter(v => v === trackingValue).length;
+    return total + record.tracked_values.filter(v => v === trackingValue).length;
   }, 0);
+
+interface HolidayVerdict {
+  isMet: boolean;
+  /** Appended to the fine's description when the holiday changed the judgement. */
+  note?: string;
+  /** The count the fine was actually judged on, when it differs from the raw one. */
+  judgedCount?: number;
+}
+
+/**
+ * Re-judges a met fine condition for a period that contains holiday days.
+ * Holidays never produce a fine, and they shouldn't make one more likely either:
+ *  - a period made up entirely of holidays is never fined;
+ *  - "too many" fines (>, >=) ignore whatever was tracked on holiday days;
+ *  - "not enough" fines (<, <=) scale the required count down to the share of
+ *    the period that wasn't a holiday, rounded in your favour;
+ *  - "exactly" fines can't be scaled sensibly, so the period is exempted.
+ */
+const judgeFineOverHolidays = (
+  condition: HabitCondition,
+  rows: TrackingRow[],
+  holidays: HolidayRange[],
+  period: { start: string; end: string },
+  rawCount: number,
+): HolidayVerdict => {
+  const holidayDays = countHolidayDaysBetween(holidays, period.start, period.end);
+  if (holidayDays === 0) return { isMet: true };
+
+  const totalDays = datesBetween(period.start, period.end).length;
+  const workingDays = totalDays - holidayDays;
+  if (workingDays <= 0) return { isMet: false };
+  if (condition.operator === '==') return { isMet: false };
+
+  if (isSettledEarly(condition.operator)) {
+    const count = countValue(rows.filter(row => !isHoliday(holidays, row.date)), condition.trackingValue);
+    return {
+      isMet: evaluateOperator(count, condition.operator, condition.count),
+      judgedCount: count,
+      note: `${holidayDays} holiday day${holidayDays === 1 ? '' : 's'} not counted.`,
+    };
+  }
+
+  const required = condition.operator === '<' ? condition.count : condition.count + 1;
+  const scaledRequired = Math.floor((required * workingDays) / totalDays);
+  return {
+    isMet: rawCount < scaledRequired,
+    note: `needed ${scaledRequired} instead of ${required} because of ${holidayDays} holiday day${holidayDays === 1 ? '' : 's'}.`,
+  };
 };
 
 /** Whether the habit was on temporary hold on any day in the window. */
@@ -82,71 +133,15 @@ const sendAccountabilityEmail = async (
   vars: Record<string, string | number>,
   alertKey: string,
   periodKey: string,
-): Promise<string[]> => {
-  const recipients = (recipientList || []).filter(Boolean);
-  if (recipients.length === 0) return [];
-
-  // The log is the source of truth for "already sent", so deleting or
-  // re-evaluating a fine can never email the same person about it twice.
-  const { data: existing, error: logReadError } = await supabase
-    .from('habit_alert_log')
-    .select('alert_key')
-    .eq('alert_key', alertKey)
-    .maybeSingle();
-
-  if (logReadError) {
-    console.error("Error reading alert log:", logReadError);
-    return [];
-  }
-  if (existing) return [];
-
-  const subject = renderTemplate(habit.alertSubject?.trim() || DEFAULT_ALERT_SUBJECT, vars);
-  const body = renderTemplate(habit.alertBody?.trim() || DEFAULT_ALERT_BODY, vars);
-
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    console.error("Cannot send accountability email: no active session.");
-    return [];
-  }
-
-  try {
-    const response = await fetch('/api/send-accountability-email', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ to: recipients, subject, body }),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      console.error("Accountability email failed:", response.status, detail);
-      return [];
-    }
-  } catch (err) {
-    console.error("Accountability email request failed:", err);
-    return [];
-  }
-
-  // Only claim the alert once the send actually succeeded, so a transient
-  // failure can be retried on the next evaluation.
-  const { error: logWriteError } = await supabase
-    .from('habit_alert_log')
-    .insert([{
-      alert_key: alertKey,
-      habit_id: habit.id,
-      period_key: periodKey,
-      recipients,
-      subject,
-    }]);
-
-  if (logWriteError) {
-    console.error("Error writing alert log:", logWriteError);
-  }
-
-  return recipients;
-};
+): Promise<string[]> =>
+  sendAlertEmail({
+    recipients: recipientList,
+    subject: renderTemplate(habit.alertSubject?.trim() || DEFAULT_ALERT_SUBJECT, vars),
+    body: renderTemplate(habit.alertBody?.trim() || DEFAULT_ALERT_BODY, vars),
+    alertKey,
+    sourceId: habit.id,
+    periodKey,
+  });
 
 /**
  * Evaluates every condition on a habit for the period(s) covering `date`.
@@ -158,6 +153,7 @@ const sendAccountabilityEmail = async (
 export const runConditionsForHabit = async (
   habit: Habit,
   date: string,
+  holidays: HolidayRange[] = [],
 ): Promise<ConditionOutcomeSummary[]> => {
   // Tracker-only habits are recorded but never judged, and a retired habit
   // stops accruing anything from the moment it is deactivated.
@@ -183,10 +179,10 @@ export const runConditionsForHabit = async (
     for (const period of candidatePeriods) {
     const key = autoKey(habit.id, index, period.key);
     const periodIsOver = period.end < todayStr;
-    const actualCount = await countTrackingsInRange(
-      habit.id, condition.trackingValue, period.start, period.end,
-    );
+    const periodRows = await fetchTrackingsInRange(habit.id, period.start, period.end);
+    let actualCount = countValue(periodRows, condition.trackingValue);
     let isMet = evaluateOperator(actualCount, condition.operator, condition.count);
+    let holidayNote: string | undefined;
 
     // "Fewer than / at most / exactly" can only be judged once the period has
     // finished — the count can still rise. Judging mid-period would fine you on
@@ -211,6 +207,14 @@ export const runConditionsForHabit = async (
       isMet = false;
     }
 
+    // No fine is ever calculated for a holiday. See judgeFineOverHolidays.
+    if (isMet && condition.outcome === 'fine') {
+      const verdict = judgeFineOverHolidays(condition, periodRows, holidays, period, actualCount);
+      isMet = verdict.isMet;
+      holidayNote = verdict.note;
+      if (verdict.judgedCount !== undefined) actualCount = verdict.judgedCount;
+    }
+
     const { data: existingRow } = await supabase
       .from('fines_status')
       .select('id')
@@ -230,7 +234,8 @@ export const runConditionsForHabit = async (
     const description =
       `${isFine ? 'Fine' : 'Reward'}: '${habit.name}' — ${condition.trackingValue} ` +
       `${condition.operator} ${condition.count} (${FREQUENCY_LABELS[condition.frequency].toLowerCase()}), ` +
-      `actual ${actualCount}, for ${period.label}.`;
+      `actual ${actualCount}, for ${period.label}.` +
+      (holidayNote ? ` Holiday: ${holidayNote}` : '');
 
     if (!existingRow) {
       const { error } = await supabase.from('fines_status').insert([{
@@ -285,7 +290,7 @@ export const runConditionsForHabit = async (
     }
   }
 
-  results.push(...await runOutOfControlMissForHabit(habit, date));
+  results.push(...await runOutOfControlMissForHabit(habit, date, holidays));
   return results;
 };
 
@@ -296,6 +301,7 @@ export const runConditionsForHabit = async (
 const runOutOfControlMissForHabit = async (
   habit: Habit,
   date: string,
+  holidays: HolidayRange[],
 ): Promise<ConditionOutcomeSummary[]> => {
   if (habit.isTrackerOnly || habit.isDeactivated || !habit.oocMissTriggersEmail) return [];
 
@@ -309,8 +315,9 @@ const runOutOfControlMissForHabit = async (
     .maybeSingle();
 
   // A held day is never fined, so it can't be an out-of-control miss either.
+  // Neither is a holiday, which is never fined at all.
   const isHeld = (tracking?.tracked_values || []).includes(TEMP_HOLD);
-  const isMiss = !isHeld && tracking?.is_out_of_control_miss === true;
+  const isMiss = !isHeld && !isHoliday(holidays, date) && tracking?.is_out_of_control_miss === true;
 
   const { data: existingRow } = await supabase
     .from('fines_status')
@@ -374,11 +381,12 @@ const runOutOfControlMissForHabit = async (
 export const runConditionsForHabits = async (
   habits: Habit[],
   dates: string[],
+  holidays: HolidayRange[] = [],
 ): Promise<ConditionOutcomeSummary[]> => {
   const all: ConditionOutcomeSummary[] = [];
   for (const habit of habits) {
     for (const date of dates) {
-      all.push(...await runConditionsForHabit(habit, date));
+      all.push(...await runConditionsForHabit(habit, date, holidays));
     }
   }
   return all;
