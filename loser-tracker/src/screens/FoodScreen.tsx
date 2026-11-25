@@ -54,6 +54,19 @@ const FoodScreen: React.FC<FoodScreenProps> = ({
   const [heard, setHeard] = React.useState<{ parsed: ParsedCommand | null; text: string } | null>(null);
   const [guessInput, setGuessInput] = React.useState("");
   const { listening, listen, cancel } = useVoice();
+  // Collapsed unless the day is already marked missed, so that switch stays reachable.
+  const [showExtras, setShowExtras] = React.useState(!!guess);
+
+  // How many times each food has been logged, so the usual ones come first.
+  const frequency = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    Object.values(days).forEach(d => d.items.forEach(item => {
+      if (item.guess) return;
+      const key = item.foodName.trim().toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
+    }));
+    return counts;
+  }, [days]);
 
   React.useEffect(() => {
     setHeard(null);
@@ -62,9 +75,11 @@ const FoodScreen: React.FC<FoodScreenProps> = ({
 
   const suggestions = React.useMemo(() => {
     const q = food.trim().toLowerCase();
-    const list = q ? savedFoods.filter(f => f.name.toLowerCase().includes(q)) : savedFoods;
-    return list.slice(0, q ? 6 : 12);
-  }, [food, savedFoods]);
+    const list = (q ? savedFoods.filter(f => f.name.toLowerCase().includes(q)) : savedFoods)
+      .slice()
+      .sort((a, b) => (frequency[b.name.toLowerCase()] || 0) - (frequency[a.name.toLowerCase()] || 0) || a.name.localeCompare(b.name));
+    return list.slice(0, q ? 6 : 15);
+  }, [food, savedFoods, frequency]);
 
   const addItem = async (name: string, amount: number, remember: boolean) => {
     setBusy(true);
@@ -191,70 +206,8 @@ const FoodScreen: React.FC<FoodScreenProps> = ({
         <button onClick={() => onDateChange(shift(date, 1))} disabled={isToday} className="w-11 h-11 rounded-full bg-card border border-line text-lg active:scale-95 transition disabled:opacity-30" aria-label="Next day">›</button>
       </div>
 
-      {/* Missed day */}
-      <div className="card p-4">
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="block text-sm">Missed this day</span>
-            <span className="block text-xs text-mute">Log one guessed total instead of items</span>
-          </span>
-          <Toggle checked={!!guess} onChange={toggleMissed} />
-        </label>
-        {guess && (
-          <div className="mt-3 flex gap-2 anim-fade-up">
-            <input className="field" inputMode="numeric" type="number" placeholder="Guessed kcal" value={guessInput} onChange={e => setGuessInput(e.target.value)} />
-            <button className="btn-ink shrink-0" onClick={saveGuess}>Save</button>
-          </div>
-        )}
-      </div>
-
       {!guess && (
         <>
-          {/* Voice */}
-          <div className="card p-5 flex items-center gap-5">
-            <button
-              onClick={handleMic}
-              className={`relative shrink-0 w-[72px] h-[72px] rounded-full flex items-center justify-center transition active:scale-95 ${listening ? "bg-over" : "bg-ink"}`}
-              aria-label={listening ? "Stop listening" : "Add by voice"}
-            >
-              {listening && <span className="absolute inset-0 rounded-full bg-over ripple" />}
-              <MicIcon className={`relative w-7 h-7 ${listening ? "text-ink" : "text-bg"}`} />
-            </button>
-            <div className="min-w-0">
-              <p className="text-sm">{listening ? <span className="anim-blink">Listening…</span> : "Tap and say"}</p>
-              <p className="text-xs text-mute mt-1 leading-relaxed">“add 300 calories for dosa”<br />“minus 200 calories for walk”</p>
-            </div>
-          </div>
-
-          {heard && (
-            <div className="card p-4 anim-pop">
-              {heard.parsed ? (
-                <>
-                  <p className="label">Heard</p>
-                  <div className="mt-2 flex items-baseline justify-between gap-3">
-                    <span className="text-lg truncate">{heard.parsed.food}</span>
-                    <span className={`text-lg ${heard.parsed.calories < 0 ? "text-good" : ""}`}>{signed(heard.parsed.calories)}</span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <button className="btn-ghost" onClick={() => setHeard(null)}>Cancel</button>
-                    <button className="btn-ghost" onClick={editHeard}>Edit</button>
-                    <button className="btn-ink" onClick={confirmHeard} disabled={busy}>Add</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="label text-over">Couldn't read that</p>
-                  <p className="mt-2 text-sm">“{heard.text}”</p>
-                  <p className="mt-1 text-xs text-mute">Say “add &lt;number&gt; calories for &lt;food&gt;”.</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button className="btn-ghost" onClick={() => setHeard(null)}>Dismiss</button>
-                    <button className="btn-ink" onClick={handleMic}>Try again</button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
           {/* Manual */}
           <div className="card p-4 space-y-3">
             <div className="flex gap-2">
@@ -351,6 +304,90 @@ const FoodScreen: React.FC<FoodScreenProps> = ({
           </ul>
         )}
       </div>
+
+      {/* Rarely used: voice and missed day */}
+      <div className="card overflow-hidden">
+        <button
+          onClick={() => setShowExtras(open => !open)}
+          className="w-full flex items-center justify-between px-5 py-4 text-sm"
+          aria-expanded={showExtras}
+        >
+          <span className="label">Extra options</span>
+          <span className={`text-mute transition-transform duration-300 ${showExtras ? "rotate-180" : ""}`}>⌄</span>
+        </button>
+        {showExtras && (
+          <div className="px-3 pb-3 space-y-3 anim-fade-up">
+            {/* Missed day */}
+            <div className="rounded-[22px] bg-card2 p-4">
+              <label className="flex items-center justify-between gap-3">
+                <span>
+                  <span className="block text-sm">Missed this day</span>
+                  <span className="block text-xs text-mute">Log one guessed total instead of items</span>
+                </span>
+                <Toggle checked={!!guess} onChange={toggleMissed} />
+              </label>
+              {guess && (
+                <div className="mt-3 flex gap-2 anim-fade-up">
+                  <input className="field" inputMode="numeric" type="number" placeholder="Guessed kcal" value={guessInput} onChange={e => setGuessInput(e.target.value)} />
+                  <button className="btn-ink shrink-0" onClick={saveGuess}>Save</button>
+                </div>
+              )}
+            </div>
+
+
+            {!guess && (
+              <>
+                {/* Voice */}
+                <div className="rounded-[22px] bg-card2 p-5 flex items-center gap-5">
+                  <button
+                    onClick={handleMic}
+                    className={`relative shrink-0 w-[72px] h-[72px] rounded-full flex items-center justify-center transition active:scale-95 ${listening ? "bg-over" : "bg-ink"}`}
+                    aria-label={listening ? "Stop listening" : "Add by voice"}
+                  >
+                    {listening && <span className="absolute inset-0 rounded-full bg-over ripple" />}
+                    <MicIcon className={`relative w-7 h-7 ${listening ? "text-ink" : "text-bg"}`} />
+                  </button>
+                  <div className="min-w-0">
+                    <p className="text-sm">{listening ? <span className="anim-blink">Listening…</span> : "Tap and say"}</p>
+                    <p className="text-xs text-mute mt-1 leading-relaxed">“add 300 calories for dosa”<br />“minus 200 calories for walk”</p>
+                  </div>
+                </div>
+
+                {heard && (
+                  <div className="rounded-[22px] bg-card2 p-4 anim-pop">
+                    {heard.parsed ? (
+                      <>
+                        <p className="label">Heard</p>
+                        <div className="mt-2 flex items-baseline justify-between gap-3">
+                          <span className="text-lg truncate">{heard.parsed.food}</span>
+                          <span className={`text-lg ${heard.parsed.calories < 0 ? "text-good" : ""}`}>{signed(heard.parsed.calories)}</span>
+                        </div>
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+                          <button className="btn-ghost" onClick={() => setHeard(null)}>Cancel</button>
+                          <button className="btn-ghost" onClick={editHeard}>Edit</button>
+                          <button className="btn-ink" onClick={confirmHeard} disabled={busy}>Add</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="label text-over">Couldn't read that</p>
+                        <p className="mt-2 text-sm">“{heard.text}”</p>
+                        <p className="mt-1 text-xs text-mute">Say “add &lt;number&gt; calories for &lt;food&gt;”.</p>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <button className="btn-ghost" onClick={() => setHeard(null)}>Dismiss</button>
+                          <button className="btn-ink" onClick={handleMic}>Try again</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 };
