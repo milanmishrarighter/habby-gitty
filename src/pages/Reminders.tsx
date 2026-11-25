@@ -8,6 +8,7 @@ import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { Reminder, mapSupabaseReminder, nextOccurrence } from "@/utils/reminders";
+import ReminderCountdown from "@/components/ReminderCountdown";
 
 const Reminders: React.FC = () => {
   const [reminders, setReminders] = React.useState<Reminder[]>([]);
@@ -153,7 +154,10 @@ const Reminders: React.FC = () => {
                 }`}
               >
                 <div>
-                  <p className="font-medium text-gray-800">{reminder.text}</p>
+                  <p className="font-medium text-gray-800 flex items-center gap-2 flex-wrap">
+                    {next && <ReminderCountdown occursOn={next} />}
+                    {reminder.text}
+                  </p>
                   <p className="text-xs text-gray-500">
                     {reminder.repeatsYearly
                       ? `Every year on ${format(parseISO(reminder.date), "d MMMM")}`

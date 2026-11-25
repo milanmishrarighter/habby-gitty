@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { AppSettings } from "@/types/appSettings";
 import { runConditionsForHabits } from "@/utils/conditionRunner";
 import HealthCard from "@/components/HealthCard";
+import { HEALTH_TRACKING_ENABLED } from "@/config/features";
 import SaveProgressDialog, { SaveStep, RegisteredAmount } from "@/components/SaveProgressDialog";
 import UpcomingReminders from "@/components/UpcomingReminders";
 import SupabaseUsage from "@/components/SupabaseUsage";
@@ -600,7 +601,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
     { id: "health", label: "Saving health details" },
     { id: "learning", label: "Checking the learning reward" },
     { id: "conditions", label: "Checking habit conditions, fines, rewards and emails" },
-  ];
+  ].filter(step => HEALTH_TRACKING_ENABLED || step.id !== "health");
 
   const updateSaveStep = (id: string, patch: Partial<SaveStep>) =>
     setSaveSteps(prev => prev.map(step => (step.id === id ? { ...step, ...patch } : step)));
@@ -658,10 +659,14 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       console.error("Falling back to the holidays already loaded:", err);
     }
 
-    await runSaveStep("health", async () => {
-      const notes = await saveHealthForDates(holidays);
-      return notes.length > 0 ? notes.join(' ') : undefined;
-    });
+    // Off while calories live in the Loser Tracker app: saving here would
+    // re-charge health fines on the days that app records.
+    if (HEALTH_TRACKING_ENABLED) {
+      await runSaveStep("health", async () => {
+        const notes = await saveHealthForDates(holidays);
+        return notes.length > 0 ? notes.join(' ') : undefined;
+      });
+    }
     await runSaveStep("learning", async () => {
       const note = await syncLearningReward(summaryDate);
       return note ?? "No learning entered, so no reward";
@@ -1379,6 +1384,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
       </div>
 
       {/* Health — one card per date, same as the habits */}
+      {HEALTH_TRACKING_ENABLED && (
       <div className="mt-8 pt-8 border-t border-gray-200 space-y-4">
         {activeDates.map((date) => (
           <HealthCard
@@ -1392,6 +1398,7 @@ const DailyEntries: React.FC<DailyEntriesProps> = ({ setActiveTab }) => {
           />
         ))}
       </div>
+      )}
 
       {/* Single Save Entry Button at the very bottom */}
       <div className="flex justify-center mt-8">

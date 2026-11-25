@@ -2,6 +2,7 @@
 
 import React from "react";
 import { format, parseISO } from "date-fns";
+import { ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
@@ -48,6 +49,8 @@ const HolidayPanel: React.FC<HolidayPanelProps> = ({
   const [end, setEnd] = React.useState(firstDate);
   const [isSaving, setIsSaving] = React.useState(false);
   const [rangeToRemove, setRangeToRemove] = React.useState<HolidayRange | null>(null);
+  // Collapsed every time the page loads; opened only on request.
+  const [isExpanded, setIsExpanded] = React.useState(false);
 
   // Opening the form starts it on the date being entered.
   const openBooking = (open: boolean) => {
@@ -144,7 +147,31 @@ const HolidayPanel: React.FC<HolidayPanelProps> = ({
   const listed = ranges.filter(range => range.end >= `${listYear}-01-01`);
 
   return (
-    <div className="w-full max-w-md mb-4 p-3 bg-sky-50 border border-sky-200 rounded-lg text-left">
+    <div className="w-full max-w-md mb-4 bg-sky-50 border border-sky-200 rounded-lg text-left">
+      <button
+        type="button"
+        onClick={() => setIsExpanded(open => !open)}
+        className="w-full flex items-center justify-between gap-3 p-3 text-sm font-semibold text-sky-900"
+        aria-expanded={isExpanded}
+        aria-controls="holiday-panel-body"
+      >
+        <span className="flex items-center gap-2 flex-wrap">
+          Holidays
+          {/* Visible even when collapsed, so a holiday is never missed. */}
+          {holidayDatesOnScreen.length > 0 && (
+            <span className="bg-sky-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full">
+              {entryDates.length > 1 ? `${holidayDatesOnScreen.length} holiday day${holidayDatesOnScreen.length === 1 ? "" : "s"}` : "On holiday"}
+            </span>
+          )}
+          {allowedPerYear > 0 && (
+            <span className="text-xs font-normal text-sky-700">{leftThisYear} of {allowedPerYear} days left</span>
+          )}
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+      </button>
+
+      {isExpanded && (
+      <div id="holiday-panel-body" className="px-3 pb-3 border-t border-sky-200 pt-3">
       <div className="flex items-center justify-between gap-4">
         <label htmlFor="on-holiday-switch" className="flex-grow text-sm font-medium text-sky-900 cursor-pointer">
           On holiday
@@ -236,6 +263,8 @@ const HolidayPanel: React.FC<HolidayPanelProps> = ({
             ))}
           </ul>
         </div>
+      )}
+      </div>
       )}
 
       <DeleteConfirmationModal

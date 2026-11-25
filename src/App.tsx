@@ -17,6 +17,7 @@ import UserMenu from "@/components/UserMenu"; // Import UserMenu
 import { supabase } from "@/lib/supabase"; // Import supabase client
 import { Session } from "@supabase/supabase-js"; // Import Session type
 import PasswordGate from "@/components/PasswordGate"; // Import PasswordGate
+import { HEALTH_TRACKING_ENABLED } from "@/config/features";
 
 const App = () => {
   const [activeTab, setActiveTab] = React.useState("daily");
@@ -73,7 +74,7 @@ const App = () => {
 
   return (
     <div className="flex flex-col items-center relative">
-      <VersionDisplay version="1.3.0" />
+      <VersionDisplay version="1.4.0" />
       <Sonner />
       <div className="w-full max-w-4xl p-4 sm:p-6 lg:p-8 bg-white shadow-xl rounded-2xl my-8">
         <div className="flex justify-between items-center mb-4">
@@ -132,6 +133,7 @@ const App = () => {
           >
             Yearly Analytics
           </button>
+          {HEALTH_TRACKING_ENABLED && (
           <button
             data-tab="health-analytics"
             className={`tab-button px-4 py-2 text-sm sm:text-base font-medium rounded-t-lg transition-all duration-300 ease-in-out ${
@@ -141,6 +143,7 @@ const App = () => {
           >
             Health Analytics
           </button>
+          )}
           <button
             data-tab="reminders"
             className={`tab-button px-4 py-2 text-sm sm:text-base font-medium rounded-t-lg transition-all duration-300 ease-in-out ${
@@ -166,7 +169,7 @@ const App = () => {
         {activeTab === "fines" && <Fines />}
         {activeTab === "setup" && <HabitSetup />}
         {activeTab === "yearly-analytics" && <YearlyAnalytics />}
-        {activeTab === "health-analytics" && <HealthAnalytics />}
+        {HEALTH_TRACKING_ENABLED && activeTab === "health-analytics" && <HealthAnalytics />}
         {activeTab === "reminders" && <Reminders />}
         {activeTab === "settings" && <Settings />}
       </div>

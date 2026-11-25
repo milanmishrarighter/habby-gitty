@@ -5,6 +5,7 @@ import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { Bell } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Reminder, mapSupabaseReminder, upcomingReminders } from "@/utils/reminders";
+import ReminderCountdown from "@/components/ReminderCountdown";
 
 interface UpcomingRemindersProps {
   /** The date the entry is being written for; reminders are counted from here. */
@@ -46,8 +47,11 @@ const UpcomingReminders: React.FC<UpcomingRemindersProps> = ({ fromDate }) => {
       </p>
       <ul className="mt-2 space-y-1">
         {upcoming.map(({ reminder, occursOn }) => (
-          <li key={reminder.id} className="flex justify-between gap-3 text-sm text-amber-900">
-            <span>{reminder.text}</span>
+          <li key={reminder.id} className="flex items-center justify-between gap-3 text-sm text-amber-900">
+            <span className="flex items-center gap-2">
+              <ReminderCountdown occursOn={occursOn} />
+              {reminder.text}
+            </span>
             <span className="shrink-0 text-amber-700">
               {format(parseISO(occursOn), "EEE, d MMM")} · {describeWhen(occursOn)}
             </span>
