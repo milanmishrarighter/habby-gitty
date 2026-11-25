@@ -5,7 +5,7 @@ project and login.
 
 ## Install
 
-Download `release/loser-tracker-1.0.0.apk` on the phone and open it. Android
+Download `release/loser-tracker-1.0.1.apk` on the phone and open it. Android
 will ask to allow installing apps from your browser or file manager the first
 time. Later versions install over the top and keep you signed in.
 

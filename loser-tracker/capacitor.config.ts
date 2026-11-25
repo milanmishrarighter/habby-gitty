@@ -5,6 +5,9 @@ const config: CapacitorConfig = {
   appName: "Loser Tracker",
   webDir: "dist",
   backgroundColor: "#0c0c0c",
+  // The app moves itself out of the keyboard's way (see useKeyboard), so the
+  // plugin and Android are told not to resize anything on their own.
+  plugins: { Keyboard: { resize: "none" } },
   android: {
     backgroundColor: "#0c0c0c",
     // Keeps the app clear of the status and navigation bars on Android 15+.

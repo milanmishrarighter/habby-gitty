@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS, LoserSettings, loadSettings, updateSettings } from ".
 import { currentFines, settleFines } from "./lib/fineRunner";
 import { rupees } from "./lib/format";
 import { todayIso } from "./lib/dates";
+import { useKeyboard } from "./lib/useKeyboard";
 import Toasts, { useToasts } from "./components/Toast";
 import LoginScreen from "./screens/LoginScreen";
 import FoodScreen from "./screens/FoodScreen";
@@ -36,6 +37,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = React.useState(false);
   const [date, setDate] = React.useState(todayIso());
   const { toasts, show } = useToasts();
+  const keyboardHeight = useKeyboard();
 
   React.useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true); });
@@ -139,7 +141,7 @@ const App: React.FC = () => {
         </button>
       </header>
 
-      <main className="flex-1 pb-28">
+      <main className="flex-1 pb-28" style={keyboardHeight ? { paddingBottom: keyboardHeight + 24 } : undefined}>
         {loadError ? (
           <div className="px-5 pt-10 text-center space-y-4">
             <p className="text-over text-sm">{loadError}</p>
@@ -181,7 +183,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {!showSettings && loaded && (
+      {!showSettings && loaded && keyboardHeight === 0 && (
         <nav className="fixed bottom-0 inset-x-0 z-30 safe-bottom px-5 pt-3 bg-gradient-to-t from-bg via-bg to-bg/0">
           <div className="relative grid grid-cols-3 rounded-full bg-card border border-line p-1.5">
             <span
